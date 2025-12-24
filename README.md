@@ -1,19 +1,24 @@
 # Hello PWA (GitHub Pages ready)
 
-Static, build-free Progressive Web App that you can publish on GitHub Pages.
+Static Progressive Web App now authored in TypeScript. Build emits to `dist/` (the folder you’ll publish).
 
 ## Run locally
-1. Serve the folder (any static server works): `npx serve .` or `python3 -m http.server 8000`.
-2. Open `http://localhost:8000`.
-3. Toggle offline/online to see the cached copy and try installing the app (Add to Home Screen prompt).
+1. Install deps (once): `npm install` (needs Node + npm).
+2. Build TypeScript to JS + copy static files: `npm run build` (outputs into `dist/`).
+3. Serve the built folder: `python3 -m http.server 8000 -d dist` (or any static server).
+4. Open `http://localhost:8000` and toggle offline/online or try “Add to Home Screen.”
+
+### One-liner setup
+- Run `bash scripts/setup.sh` to install Node (via nvm by default) and then `npm install`.
+- If you prefer Homebrew for Node: `bash scripts/setup.sh --use-brew`.
 
 ## Deploy to GitHub Pages
-1. Create a GitHub repo and push this project.
-2. In the repo settings, enable GitHub Pages for the `main` branch (root folder).
-3. Pages will publish at `https://<username>.github.io/<repo>/`—no extra config needed because all paths are relative.
+1. Build (`npm run build`) so the latest JS output is in `dist/`.
+2. Create/push a GitHub repo.
+3. Point GitHub Pages at the built assets (publish the `dist/` folder, e.g., via the Pages “folder” option or a `gh-pages` branch).
 4. After the first load, refresh while offline to confirm the service worker cache.
 
 ## Customize
-- Edit `index.html` for content and styling.
+- Edit `index.html` for layout, and change logic in `src/main.ts`.
+- Service worker logic lives in `src/service-worker.ts` (bump `CACHE_NAME` when you change assets to force a fresh cache).
 - Update icons in `assets/icons` and tweak manifest values in `manifest.webmanifest`.
-- Bump `CACHE_NAME` in `service-worker.js` when you change assets to force a fresh cache.
