@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#406fff">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./assets/icons/icon-192.png" sizes="192x192">
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
+  <title>Hello PWA</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #0f172a;
+      --card: #111827;
+      --text: #e5e7eb;
+      --accent: #406fff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #1e293b, #0b1223 40%),
+                  radial-gradient(circle at 80% 0%, #21386c, #0b1223 35%),
+                  linear-gradient(180deg, #0b1223 0%, #0b1223 60%, #0f172a 100%);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(560px, 100%);
+      background: var(--card);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 20px;
+      padding: 32px;
+      box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    main::before, main::after {
+      content: "";
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(80px);
+      opacity: 0.25;
+      pointer-events: none;
+    }
+
+    main::before {
+      width: 240px;
+      height: 240px;
+      background: #406fff;
+      top: -60px;
+      right: -120px;
+    }
+
+    main::after {
+      width: 200px;
+      height: 200px;
+      background: #10b981;
+      bottom: -80px;
+      left: -90px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: clamp(28px, 5vw, 36px);
+      letter-spacing: -0.02em;
+    }
+
+    p {
+      margin: 0 0 18px;
+      color: #cbd5e1;
+      line-height: 1.6;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(64, 111, 255, 0.15);
+      color: #dbeafe;
+      border: 1px solid rgba(64, 111, 255, 0.4);
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+
+    .status {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      margin-top: 6px;
+      font-weight: 600;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #22c55e;
+      box-shadow: 0 0 0 6px rgba(34, 197, 94, 0.12);
+      transition: background 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    button {
+      background: var(--accent);
+      border: none;
+      color: #f8fafc;
+      padding: 12px 18px;
+      border-radius: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      box-shadow: 0 12px 30px rgba(64, 111, 255, 0.35);
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 14px 36px rgba(64, 111, 255, 0.45);
+    }
+
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 8px 24px rgba(64, 111, 255, 0.4);
+    }
+
+    footer {
+      margin-top: 18px;
+      color: #94a3b8;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="pill">🚀 Progressive Web App ready for GitHub Pages</div>
+    <h1>Hello, offline web!</h1>
+    <p>This minimal PWA is installable, works offline, and is ready to publish on GitHub Pages. Try toggling airplane mode and refreshing.</p>
+
+    <button id="installButton" hidden>Install this app</button>
+    <div class="status">
+      <div class="dot" id="onlineDot"></div>
+      <span id="statusText">Checking connection...</span>
+    </div>
+
+    <footer>Manifest + service worker are already configured. Adjust text and icons to make it yours.</footer>
+  </main>
+
+  <noscript>This app needs JavaScript for its offline features.</noscript>
+
+  <script>
+    const statusText = document.getElementById('statusText');
+    const onlineDot = document.getElementById('onlineDot');
+    const installButton = document.getElementById('installButton');
+    let deferredPrompt;
+
+    function updateConnectionStatus() {
+      const online = navigator.onLine;
+      statusText.textContent = online ? 'You are online' : 'Offline — cached copy';
+      onlineDot.style.background = online ? '#22c55e' : '#f59e0b';
+      onlineDot.style.boxShadow = online
+        ? '0 0 0 6px rgba(34, 197, 94, 0.12)'
+        : '0 0 0 6px rgba(245, 158, 11, 0.18)';
+    }
+
+    window.addEventListener('online', updateConnectionStatus);
+    window.addEventListener('offline', updateConnectionStatus);
+    updateConnectionStatus();
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js').catch((err) => {
+          console.error('Service worker registration failed:', err);
+        });
+      });
+    }
+
+    window.addEventListener('beforeinstallprompt', (event) => {
+      event.preventDefault();
+      deferredPrompt = event;
+      installButton.hidden = false;
+    });
+
+    installButton.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        installButton.textContent = 'Ready to install!';
+      }
+      deferredPrompt = null;
+      installButton.hidden = true;
+    });
+  </script>
+</body>
+</html>
