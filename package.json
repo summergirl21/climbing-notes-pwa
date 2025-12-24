@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "clean": "rm -rf dist",
+    "clean": "rm -rf docs",
     "build": "npm run clean && tsc && npm run copy",
-    "copy": "mkdir -p dist && cp index.html manifest.webmanifest dist && cp -R assets dist/",
-    "preview": "npm run build && python3 -m http.server 8000 -d dist"
+    "copy": "mkdir -p docs && cp index.html manifest.webmanifest docs && cp -R assets docs/",
+    "preview": "npm run build && python3 -m http.server 8000 -d docs"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

@@ -5,7 +5,7 @@
     "moduleResolution": "node",
     "strict": true,
     "rootDir": "src",
-    "outDir": "dist",
+    "outDir": "docs",
     "lib": ["ES2020", "DOM", "DOM.Iterable", "WebWorker"],
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
