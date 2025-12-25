@@ -1,7 +1,7 @@
 "use strict";
 /// <reference lib="webworker" />
 const sw = self;
-const CACHE_NAME = 'climbing-notes-v1';
+const CACHE_NAME = 'climbing-notes-v2';
 const STATIC_ASSETS = [
     './',
     './index.html',
