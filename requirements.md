@@ -46,7 +46,7 @@
   - Grade distribution (graphical)
   - Max grade
 - Session stats default to the most recent session date with logged attempts.
-- Use tabs/pages to separate major sections of the app.
+- Use tabs/pages to separate major sections of the app, with bottom tab navigation on mobile and the current top layout on desktop.
 
 ## Data rules and validation
 - Route identity is unique within a gym by `rope_number + color + set_date`.
