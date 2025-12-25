@@ -84,6 +84,7 @@ const loadChartStyle = () => {
 const statusText = document.getElementById('statusText');
 const onlineDot = document.getElementById('onlineDot');
 const installButton = document.getElementById('installButton');
+const buildInfo = document.getElementById('buildInfo');
 const messageBar = document.getElementById('messageBar');
 const themeSelect = document.getElementById('themeSelect');
 const tabButtons = Array.from(document.querySelectorAll('.tab'));
@@ -131,9 +132,18 @@ const updateConnectionStatus = () => {
         ? '0 0 0 6px rgba(34, 197, 94, 0.12)'
         : '0 0 0 6px rgba(245, 158, 11, 0.18)';
 };
+const updateBuildInfo = () => {
+    if (!buildInfo)
+        return;
+    const appVersion = '0.1.0';
+    const modified = document.lastModified ? new Date(document.lastModified) : null;
+    const builtOn = modified && !Number.isNaN(modified.getTime()) ? modified.toLocaleString() : 'unknown';
+    buildInfo.textContent = `Version ${appVersion} | Built ${builtOn}`;
+};
 window.addEventListener('online', updateConnectionStatus);
 window.addEventListener('offline', updateConnectionStatus);
 updateConnectionStatus();
+updateBuildInfo();
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./service-worker.js').catch((err) => {
