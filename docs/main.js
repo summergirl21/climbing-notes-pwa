@@ -3,6 +3,7 @@ const STORAGE_KEY = 'climbingNotesData';
 const DB_NAME = 'climbingNotesDb';
 const DB_STORE = 'appData';
 const DB_DATA_KEY = 'data';
+const THEME_KEY = 'climbingNotesTheme';
 const createEmptyData = () => ({ version: 1, gyms: [], routes: [], attempts: [] });
 const normalizeData = (data) => ({
     version: data.version ?? 1,
@@ -54,10 +55,31 @@ const requestPersistentStorage = async () => {
         console.warn('Failed to request persistent storage', error);
     }
 };
+const loadThemePreference = () => {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'light' || stored === 'dark' || stored === 'system') {
+        return stored;
+    }
+    return 'system';
+};
+const applyThemePreference = (preference) => {
+    if (preference === 'system') {
+        document.documentElement.removeAttribute('data-theme');
+    }
+    else {
+        document.documentElement.setAttribute('data-theme', preference);
+    }
+    if (themeSelect && themeSelect.value !== preference) {
+        themeSelect.value = preference;
+    }
+};
 const statusText = document.getElementById('statusText');
 const onlineDot = document.getElementById('onlineDot');
 const installButton = document.getElementById('installButton');
 const messageBar = document.getElementById('messageBar');
+const themeSelect = document.getElementById('themeSelect');
+const tabButtons = Array.from(document.querySelectorAll('.tab'));
+const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
 const attemptForm = document.getElementById('attemptForm');
 const attemptGym = document.getElementById('attemptGym');
 const routePicker = document.getElementById('routePicker');
@@ -132,6 +154,33 @@ installButton?.addEventListener('click', async () => {
     }
     deferredPrompt = null;
     installButton.hidden = true;
+});
+const setActiveTab = (tabId) => {
+    tabButtons.forEach((button) => {
+        const isActive = button.dataset.tab === tabId;
+        button.classList.toggle('active', isActive);
+        button.setAttribute('aria-selected', String(isActive));
+    });
+    tabPanels.forEach((panel) => {
+        const isActive = panel.dataset.tabPanel === tabId;
+        panel.classList.toggle('active', isActive);
+        panel.toggleAttribute('hidden', !isActive);
+    });
+};
+tabButtons.forEach((button) => {
+    button.addEventListener('click', () => {
+        const tabId = button.dataset.tab;
+        if (!tabId)
+            return;
+        setActiveTab(tabId);
+    });
+});
+const initialTheme = loadThemePreference();
+applyThemePreference(initialTheme);
+themeSelect?.addEventListener('change', () => {
+    const preference = themeSelect.value;
+    localStorage.setItem(THEME_KEY, preference);
+    applyThemePreference(preference);
 });
 const saveData = async (data) => {
     const normalized = normalizeData(data);
@@ -215,6 +264,7 @@ const state = {
     editingRouteId: '',
     editingAttemptId: '',
 };
+let sessionDatePinned = false;
 let messageTimeout = null;
 const setMessage = (text) => {
     if (!messageBar)
@@ -233,6 +283,15 @@ const setMessage = (text) => {
 const normalizeText = (value) => value.trim();
 const normalizeGrade = (value) => value.trim().toLowerCase();
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const mostRecentSessionDate = () => {
+    if (state.data.attempts.length === 0)
+        return todayISO();
+    return state.data.attempts.reduce((latest, attempt) => {
+        if (!latest || attempt.climbDate > latest)
+            return attempt.climbDate;
+        return latest;
+    }, '');
+};
 const createId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
         return crypto.randomUUID();
@@ -588,6 +647,11 @@ const renderAttempts = () => {
         attemptList.appendChild(card);
     });
 };
+const setSessionDefault = () => {
+    if (!sessionDateInput || sessionDatePinned)
+        return;
+    sessionDateInput.value = mostRecentSessionDate();
+};
 const renderStats = () => {
     if (!sessionDateInput || !statTotal || !statMax || !gradeDistribution)
         return;
@@ -621,12 +685,27 @@ const renderStats = () => {
         gradeDistribution.innerHTML = '<div class="empty">No attempts for this session.</div>';
         return;
     }
+    const maxCount = Math.max(...gradeCounts.values());
     [...gradeCounts.entries()]
         .sort((a, b) => compareGrades(a[0], b[0]))
         .forEach(([grade, count]) => {
-        const line = document.createElement('div');
-        line.textContent = `${grade}: ${count}`;
-        gradeDistribution.appendChild(line);
+        const bar = document.createElement('div');
+        bar.className = 'grade-bar';
+        const header = document.createElement('div');
+        header.className = 'grade-bar-header';
+        const label = document.createElement('span');
+        label.textContent = grade;
+        const value = document.createElement('span');
+        value.textContent = String(count);
+        header.append(label, value);
+        const track = document.createElement('div');
+        track.className = 'grade-bar-track';
+        const fill = document.createElement('div');
+        fill.className = 'grade-bar-fill';
+        fill.style.width = `${Math.round((count / maxCount) * 100)}%`;
+        track.appendChild(fill);
+        bar.append(header, track);
+        gradeDistribution.appendChild(bar);
     });
 };
 const renderRouteSearchResult = (routes) => {
@@ -713,6 +792,7 @@ const renderAll = () => {
     renderGyms();
     renderRoutes();
     renderAttempts();
+    setSessionDefault();
     renderStats();
     const hasGyms = gymNames.length > 0;
     setFormDisabled(attemptForm, !hasGyms);
@@ -983,7 +1063,11 @@ searchReset?.addEventListener('click', () => {
     if (routeSearchResult)
         routeSearchResult.innerHTML = '';
 });
-sessionForm?.addEventListener('input', () => {
+sessionDateInput?.addEventListener('change', () => {
+    sessionDatePinned = true;
+    renderStats();
+});
+sessionGym?.addEventListener('change', () => {
     renderStats();
 });
 if (climbDateInput)
@@ -993,6 +1077,7 @@ if (sessionDateInput)
 const initApp = async () => {
     await requestPersistentStorage();
     state.data = await readData();
+    sessionDatePinned = false;
     renderAll();
 };
 void initApp();

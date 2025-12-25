@@ -44,6 +44,9 @@ const STORAGE_KEY = 'climbingNotesData';
 const DB_NAME = 'climbingNotesDb';
 const DB_STORE = 'appData';
 const DB_DATA_KEY = 'data';
+const THEME_KEY = 'climbingNotesTheme';
+
+type ThemePreference = 'system' | 'light' | 'dark';
 
 const createEmptyData = (): DataStore => ({ version: 1, gyms: [], routes: [], attempts: [] });
 
@@ -98,10 +101,32 @@ const requestPersistentStorage = async () => {
   }
 };
 
+const loadThemePreference = (): ThemePreference => {
+  const stored = localStorage.getItem(THEME_KEY);
+  if (stored === 'light' || stored === 'dark' || stored === 'system') {
+    return stored;
+  }
+  return 'system';
+};
+
+const applyThemePreference = (preference: ThemePreference) => {
+  if (preference === 'system') {
+    document.documentElement.removeAttribute('data-theme');
+  } else {
+    document.documentElement.setAttribute('data-theme', preference);
+  }
+  if (themeSelect && themeSelect.value !== preference) {
+    themeSelect.value = preference;
+  }
+};
+
 const statusText = document.getElementById('statusText') as HTMLSpanElement | null;
 const onlineDot = document.getElementById('onlineDot') as HTMLDivElement | null;
 const installButton = document.getElementById('installButton') as HTMLButtonElement | null;
 const messageBar = document.getElementById('messageBar') as HTMLDivElement | null;
+const themeSelect = document.getElementById('themeSelect') as HTMLSelectElement | null;
+const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.tab'));
+const tabPanels = Array.from(document.querySelectorAll<HTMLElement>('.tab-panel'));
 
 const attemptForm = document.getElementById('attemptForm') as HTMLFormElement | null;
 const attemptGym = document.getElementById('attemptGym') as HTMLSelectElement | null;
@@ -186,6 +211,36 @@ installButton?.addEventListener('click', async () => {
   installButton.hidden = true;
 });
 
+const setActiveTab = (tabId: string) => {
+  tabButtons.forEach((button) => {
+    const isActive = button.dataset.tab === tabId;
+    button.classList.toggle('active', isActive);
+    button.setAttribute('aria-selected', String(isActive));
+  });
+  tabPanels.forEach((panel) => {
+    const isActive = panel.dataset.tabPanel === tabId;
+    panel.classList.toggle('active', isActive);
+    panel.toggleAttribute('hidden', !isActive);
+  });
+};
+
+tabButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    const tabId = button.dataset.tab;
+    if (!tabId) return;
+    setActiveTab(tabId);
+  });
+});
+
+const initialTheme = loadThemePreference();
+applyThemePreference(initialTheme);
+
+themeSelect?.addEventListener('change', () => {
+  const preference = themeSelect.value as ThemePreference;
+  localStorage.setItem(THEME_KEY, preference);
+  applyThemePreference(preference);
+});
+
 const saveData = async (data: DataStore) => {
   const normalized = normalizeData(data);
   if (!('indexedDB' in window)) {
@@ -267,6 +322,8 @@ const state = {
   editingAttemptId: '' as string | null,
 };
 
+let sessionDatePinned = false;
+
 let messageTimeout: number | null = null;
 
 const setMessage = (text: string) => {
@@ -286,6 +343,14 @@ const normalizeText = (value: string) => value.trim();
 const normalizeGrade = (value: string) => value.trim().toLowerCase();
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const mostRecentSessionDate = () => {
+  if (state.data.attempts.length === 0) return todayISO();
+  return state.data.attempts.reduce((latest, attempt) => {
+    if (!latest || attempt.climbDate > latest) return attempt.climbDate;
+    return latest;
+  }, '');
+};
 
 const createId = () => {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -680,6 +745,11 @@ const renderAttempts = () => {
   });
 };
 
+const setSessionDefault = () => {
+  if (!sessionDateInput || sessionDatePinned) return;
+  sessionDateInput.value = mostRecentSessionDate();
+};
+
 const renderStats = () => {
   if (!sessionDateInput || !statTotal || !statMax || !gradeDistribution) return;
   const sessionDate = sessionDateInput.value || todayISO();
@@ -713,12 +783,35 @@ const renderStats = () => {
     return;
   }
 
+  const maxCount = Math.max(...gradeCounts.values());
+
   [...gradeCounts.entries()]
     .sort((a, b) => compareGrades(a[0], b[0]))
     .forEach(([grade, count]) => {
-      const line = document.createElement('div');
-      line.textContent = `${grade}: ${count}`;
-      gradeDistribution.appendChild(line);
+      const bar = document.createElement('div');
+      bar.className = 'grade-bar';
+
+      const header = document.createElement('div');
+      header.className = 'grade-bar-header';
+
+      const label = document.createElement('span');
+      label.textContent = grade;
+
+      const value = document.createElement('span');
+      value.textContent = String(count);
+
+      header.append(label, value);
+
+      const track = document.createElement('div');
+      track.className = 'grade-bar-track';
+
+      const fill = document.createElement('div');
+      fill.className = 'grade-bar-fill';
+      fill.style.width = `${Math.round((count / maxCount) * 100)}%`;
+
+      track.appendChild(fill);
+      bar.append(header, track);
+      gradeDistribution.appendChild(bar);
     });
 };
 
@@ -817,6 +910,7 @@ const renderAll = () => {
   renderGyms();
   renderRoutes();
   renderAttempts();
+  setSessionDefault();
   renderStats();
 
   const hasGyms = gymNames.length > 0;
@@ -1115,7 +1209,12 @@ searchReset?.addEventListener('click', () => {
   if (routeSearchResult) routeSearchResult.innerHTML = '';
 });
 
-sessionForm?.addEventListener('input', () => {
+sessionDateInput?.addEventListener('change', () => {
+  sessionDatePinned = true;
+  renderStats();
+});
+
+sessionGym?.addEventListener('change', () => {
   renderStats();
 });
 
@@ -1125,6 +1224,7 @@ if (sessionDateInput) sessionDateInput.value = todayISO();
 const initApp = async () => {
   await requestPersistentStorage();
   state.data = await readData();
+  sessionDatePinned = false;
   renderAll();
 };
 

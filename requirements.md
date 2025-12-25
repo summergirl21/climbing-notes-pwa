@@ -34,6 +34,7 @@
 - Create/edit/delete a gym.
 - Create/edit/delete a route for a specific gym.
 - Log multiple attempts for the same route on the same day.
+- Allow creating a new route directly from the attempt flow if it does not exist.
 - View a list of climbs with filters:
   - Gym, rope number, color, grade, set date, climb date, completion style.
 - Search routes using any combination of rope number, color, and set date (within a gym), and show:
@@ -42,8 +43,10 @@
   - Notes and grades from those attempts
 - Session/day view (per calendar date) with stats:
   - Total climbs (attempts)
-  - Grade distribution
+  - Grade distribution (graphical)
   - Max grade
+- Session stats default to the most recent session date with logged attempts.
+- Use tabs/pages to separate major sections of the app.
 
 ## Data rules and validation
 - Route identity is unique within a gym by `rope_number + color + set_date`.
@@ -55,4 +58,5 @@
 ## Non-functional requirements
 - Use a persistent storage API to save data locally.
 - App is usable on mobile and desktop form factors.
+- Provide a dark mode option that respects system settings.
 - All features work offline.
