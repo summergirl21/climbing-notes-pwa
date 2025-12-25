@@ -680,15 +680,6 @@
         </span>
         Stats
       </button>
-      <button class="tab" id="tab-search" data-tab="search" role="tab" aria-selected="false">
-        <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <circle cx="11" cy="11" r="7"></circle>
-            <path d="M20 20l-3.5-3.5"></path>
-          </svg>
-        </span>
-        Search
-      </button>
       <button class="tab" id="tab-routes" data-tab="routes" role="tab" aria-selected="false">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
@@ -827,75 +818,46 @@
         </div>
       </section>
 
-      <section class="tab-panel" data-tab-panel="search" role="tabpanel" aria-labelledby="tab-search" hidden>
-        <div class="grid">
-          <section class="panel">
-            <h2>Route search</h2>
-            <p>Find a route and see all past attempts. Use any combo of rope, color, or set date.</p>
-            <form id="routeSearchForm">
-              <label>
-                Gym
-                <select id="searchGym" required></select>
-              </label>
-              <div class="two-col">
-                <label>
-                  Rope number (optional)
-                  <input id="searchRope" type="text" placeholder="12">
-                </label>
-                <label>
-                  Color (optional)
-                  <input id="searchColor" type="text" placeholder="Red">
-                </label>
-              </div>
-              <label>
-                Set date (optional)
-                <input id="searchSetDate" type="date">
-              </label>
-              <div class="actions">
-                <button type="submit" class="primary">Search routes</button>
-                <button type="button" id="searchReset" class="ghost">Clear</button>
-              </div>
-            </form>
-            <div id="routeSearchResult"></div>
-          </section>
-        </div>
-      </section>
-
       <section class="tab-panel" data-tab-panel="routes" role="tabpanel" aria-labelledby="tab-routes" hidden>
         <div class="grid">
           <section class="panel">
             <h2>Routes</h2>
-            <p>Create or update routes for each gym.</p>
-            <form id="routeForm">
+            <p>Search past routes or add a new one for a gym. Use the same form for both actions.</p>
+            <form id="routeHubForm">
               <label>
                 Gym
-                <select id="routeGym" required></select>
+                <select id="routeHubGym" required></select>
               </label>
               <div class="two-col">
                 <label>
                   Rope number
-                  <input id="routeRope" type="text" required>
+                  <input id="routeHubRope" type="text">
                 </label>
                 <label>
                   Color
-                  <input id="routeColorInput" type="text" required>
+                  <input id="routeHubColor" type="text">
                 </label>
               </div>
               <div class="two-col">
                 <label>
                   Set date
-                  <input id="routeSetDate" type="date" required>
+                  <input id="routeHubSetDate" type="date">
                 </label>
                 <label>
                   Grade (Yosemite)
-                  <input id="routeGradeInput" type="text" placeholder="5.9" required>
+                  <input id="routeHubGrade" type="text" placeholder="5.9">
                 </label>
               </div>
               <div class="actions">
-                <button type="submit" class="primary" id="routeSave">Save route</button>
-                <button type="button" id="routeClear" class="ghost">Clear</button>
+                <button type="button" class="primary" id="routeSearch">Search routes</button>
+                <button type="button" class="ghost" id="routeSave">Add route</button>
               </div>
             </form>
+            <div id="routeSearchResult"></div>
+          </section>
+          <section class="panel">
+            <h2>All routes</h2>
+            <p>Browse existing routes and jump into editing.</p>
             <div id="routeList" class="list"></div>
           </section>
         </div>

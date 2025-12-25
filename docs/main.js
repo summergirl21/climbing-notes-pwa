@@ -107,20 +107,15 @@ const sessionGym = document.getElementById('sessionGym');
 const statTotal = document.getElementById('statTotal');
 const statMax = document.getElementById('statMax');
 const gradeDistribution = document.getElementById('gradeDistribution');
-const routeSearchForm = document.getElementById('routeSearchForm');
-const searchGym = document.getElementById('searchGym');
-const searchRope = document.getElementById('searchRope');
-const searchColor = document.getElementById('searchColor');
-const searchSetDate = document.getElementById('searchSetDate');
-const searchReset = document.getElementById('searchReset');
+const routeHubForm = document.getElementById('routeHubForm');
+const routeHubGym = document.getElementById('routeHubGym');
+const routeHubRope = document.getElementById('routeHubRope');
+const routeHubColor = document.getElementById('routeHubColor');
+const routeHubSetDate = document.getElementById('routeHubSetDate');
+const routeHubGrade = document.getElementById('routeHubGrade');
+const routeSearchButton = document.getElementById('routeSearch');
+const routeSaveButton = document.getElementById('routeSave');
 const routeSearchResult = document.getElementById('routeSearchResult');
-const routeForm = document.getElementById('routeForm');
-const routeGym = document.getElementById('routeGym');
-const routeRope = document.getElementById('routeRope');
-const routeColorInputEdit = document.getElementById('routeColorInput');
-const routeSetDate = document.getElementById('routeSetDate');
-const routeGradeInputEdit = document.getElementById('routeGradeInput');
-const routeClear = document.getElementById('routeClear');
 const routeList = document.getElementById('routeList');
 const gymForm = document.getElementById('gymForm');
 const gymNameInput = document.getElementById('gymName');
@@ -430,13 +425,12 @@ const resetAttemptForm = () => {
         submitButton.textContent = 'Save attempt';
 };
 const resetRouteForm = () => {
-    if (!routeForm)
+    if (!routeHubForm)
         return;
-    routeForm.reset();
+    routeHubForm.reset();
     state.editingRouteId = null;
-    const submitButton = routeForm.querySelector('button[type="submit"]');
-    if (submitButton)
-        submitButton.textContent = 'Save route';
+    if (routeSaveButton)
+        routeSaveButton.textContent = 'Add route';
 };
 const resetGymForm = () => {
     if (!gymForm)
@@ -561,18 +555,17 @@ const renderRoutes = () => {
         editButton.className = 'ghost';
         editButton.textContent = 'Edit';
         editButton.addEventListener('click', () => {
-            if (!routeGym || !routeRope || !routeColorInputEdit || !routeSetDate || !routeGradeInputEdit) {
+            if (!routeHubGym || !routeHubRope || !routeHubColor || !routeHubSetDate || !routeHubGrade) {
                 return;
             }
-            routeGym.value = route.gymName;
-            routeRope.value = route.ropeNumber;
-            routeColorInputEdit.value = route.color;
-            routeSetDate.value = route.setDate;
-            routeGradeInputEdit.value = route.grade;
+            routeHubGym.value = route.gymName;
+            routeHubRope.value = route.ropeNumber;
+            routeHubColor.value = route.color;
+            routeHubSetDate.value = route.setDate;
+            routeHubGrade.value = route.grade;
             state.editingRouteId = route.routeId;
-            const submitButton = routeForm?.querySelector('button[type="submit"]');
-            if (submitButton)
-                submitButton.textContent = 'Update route';
+            if (routeSaveButton)
+                routeSaveButton.textContent = 'Update route';
         });
         const deleteButton = document.createElement('button');
         deleteButton.type = 'button';
@@ -854,8 +847,7 @@ const renderRouteSearchResult = (routes) => {
 const renderAll = () => {
     const gymNames = state.data.gyms.map((gym) => gym.name);
     updateSelectOptions(attemptGym, gymNames);
-    updateSelectOptions(routeGym, gymNames);
-    updateSelectOptions(searchGym, gymNames);
+    updateSelectOptions(routeHubGym, gymNames);
     updateSelectOptions(sessionGym, gymNames, { allowEmpty: true, emptyLabel: 'All gyms' });
     updateRoutePicker();
     renderGyms();
@@ -865,8 +857,7 @@ const renderAll = () => {
     renderStats();
     const hasGyms = gymNames.length > 0;
     setFormDisabled(attemptForm, !hasGyms);
-    setFormDisabled(routeForm, !hasGyms);
-    setFormDisabled(routeSearchForm, !hasGyms);
+    setFormDisabled(routeHubForm, !hasGyms);
     if (!hasGyms && messageBar && !messageBar.textContent) {
         setMessage('Add a gym to start logging climbs.');
     }
@@ -963,16 +954,14 @@ attemptForm?.addEventListener('submit', (event) => {
 attemptReset?.addEventListener('click', () => {
     resetAttemptForm();
 });
-routeForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (!routeGym || !routeRope || !routeColorInputEdit || !routeSetDate || !routeGradeInputEdit) {
+const handleRouteSave = () => {
+    if (!routeHubGym || !routeHubRope || !routeHubColor || !routeHubSetDate || !routeHubGrade)
         return;
-    }
-    const gymName = normalizeText(routeGym.value);
-    const ropeNumber = normalizeText(routeRope.value);
-    const color = normalizeText(routeColorInputEdit.value);
-    const setDate = routeSetDate.value;
-    const grade = normalizeGrade(routeGradeInputEdit.value);
+    const gymName = normalizeText(routeHubGym.value);
+    const ropeNumber = normalizeText(routeHubRope.value);
+    const color = normalizeText(routeHubColor.value);
+    const setDate = routeHubSetDate.value;
+    const grade = normalizeGrade(routeHubGrade.value);
     if (!gymName || !ropeNumber || !color || !setDate || !grade) {
         setMessage('Fill in all route fields.');
         return;
@@ -1031,9 +1020,44 @@ routeForm?.addEventListener('submit', (event) => {
     renderAll();
     setMessage('Route saved.');
     resetRouteForm();
+};
+const handleRouteSearch = () => {
+    if (!routeHubGym || !routeHubRope || !routeHubColor || !routeHubSetDate)
+        return;
+    const gymName = normalizeText(routeHubGym.value);
+    const ropeQuery = normalizeText(routeHubRope.value).toLowerCase();
+    const colorQuery = normalizeText(routeHubColor.value).toLowerCase();
+    const setDateQuery = routeHubSetDate.value;
+    if (!gymName) {
+        setMessage('Pick a gym to search.');
+        return;
+    }
+    if (!ropeQuery && !colorQuery && !setDateQuery) {
+        setMessage('Add at least one search field.');
+        return;
+    }
+    const routes = state.data.routes.filter((route) => {
+        if (route.gymName !== gymName)
+            return false;
+        if (ropeQuery && route.ropeNumber.toLowerCase() !== ropeQuery)
+            return false;
+        if (colorQuery && route.color.toLowerCase() !== colorQuery)
+            return false;
+        if (setDateQuery && route.setDate !== setDateQuery)
+            return false;
+        return true;
+    });
+    renderRouteSearchResult(routes);
+};
+routeHubForm?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    handleRouteSearch();
 });
-routeClear?.addEventListener('click', () => {
-    resetRouteForm();
+routeSearchButton?.addEventListener('click', () => {
+    handleRouteSearch();
+});
+routeSaveButton?.addEventListener('click', () => {
+    handleRouteSave();
 });
 gymForm?.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -1097,40 +1121,6 @@ gymForm?.addEventListener('submit', (event) => {
 });
 gymClear?.addEventListener('click', () => {
     resetGymForm();
-});
-routeSearchForm?.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (!searchGym || !searchRope || !searchColor || !searchSetDate)
-        return;
-    const gymName = normalizeText(searchGym.value);
-    const ropeQuery = normalizeText(searchRope.value).toLowerCase();
-    const colorQuery = normalizeText(searchColor.value).toLowerCase();
-    const setDateQuery = searchSetDate.value;
-    if (!gymName) {
-        setMessage('Pick a gym to search.');
-        return;
-    }
-    if (!ropeQuery && !colorQuery && !setDateQuery) {
-        setMessage('Add at least one search field.');
-        return;
-    }
-    const routes = state.data.routes.filter((route) => {
-        if (route.gymName !== gymName)
-            return false;
-        if (ropeQuery && route.ropeNumber.toLowerCase() !== ropeQuery)
-            return false;
-        if (colorQuery && route.color.toLowerCase() !== colorQuery)
-            return false;
-        if (setDateQuery && route.setDate !== setDateQuery)
-            return false;
-        return true;
-    });
-    renderRouteSearchResult(routes);
-});
-searchReset?.addEventListener('click', () => {
-    routeSearchForm?.reset();
-    if (routeSearchResult)
-        routeSearchResult.innerHTML = '';
 });
 sessionDateInput?.addEventListener('change', () => {
     sessionDatePinned = true;
