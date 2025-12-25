@@ -4,6 +4,7 @@ const DB_NAME = 'climbingNotesDb';
 const DB_STORE = 'appData';
 const DB_DATA_KEY = 'data';
 const THEME_KEY = 'climbingNotesTheme';
+const CHART_STYLE_KEY = 'climbingNotesChartStyle';
 const createEmptyData = () => ({ version: 1, gyms: [], routes: [], attempts: [] });
 const normalizeData = (data) => ({
     version: data.version ?? 1,
@@ -73,6 +74,13 @@ const applyThemePreference = (preference) => {
         themeSelect.value = preference;
     }
 };
+const loadChartStyle = () => {
+    const stored = localStorage.getItem(CHART_STYLE_KEY);
+    if (stored === 'bars' || stored === 'histogram') {
+        return stored;
+    }
+    return 'bars';
+};
 const statusText = document.getElementById('statusText');
 const onlineDot = document.getElementById('onlineDot');
 const installButton = document.getElementById('installButton');
@@ -80,6 +88,7 @@ const messageBar = document.getElementById('messageBar');
 const themeSelect = document.getElementById('themeSelect');
 const tabButtons = Array.from(document.querySelectorAll('.tab'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
+const gradeChartStyleSelect = document.getElementById('gradeChartStyle');
 const attemptForm = document.getElementById('attemptForm');
 const attemptGym = document.getElementById('attemptGym');
 const routePicker = document.getElementById('routePicker');
@@ -181,6 +190,15 @@ themeSelect?.addEventListener('change', () => {
     const preference = themeSelect.value;
     localStorage.setItem(THEME_KEY, preference);
     applyThemePreference(preference);
+});
+const initialChartStyle = loadChartStyle();
+if (gradeChartStyleSelect) {
+    gradeChartStyleSelect.value = initialChartStyle;
+}
+gradeChartStyleSelect?.addEventListener('change', () => {
+    const style = gradeChartStyleSelect.value;
+    localStorage.setItem(CHART_STYLE_KEY, style);
+    renderStats();
 });
 const saveData = async (data) => {
     const normalized = normalizeData(data);
@@ -513,13 +531,26 @@ const renderRoutes = () => {
         const lastClimbed = attempts
             .slice()
             .sort((a, b) => b.climbDate.localeCompare(a.climbDate))[0]?.climbDate;
-        const card = document.createElement('div');
-        card.className = 'list-item';
-        const title = document.createElement('strong');
+        const card = document.createElement('details');
+        card.className = 'list-item compact-card';
+        const summary = document.createElement('summary');
+        summary.className = 'compact-summary';
+        const textWrap = document.createElement('div');
+        textWrap.className = 'compact-text';
+        const title = document.createElement('div');
+        title.className = 'compact-title';
         title.textContent = `${route.gymName} - Rope ${route.ropeNumber} ${route.color}`;
         const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.textContent = `Set ${route.setDate} | Grade ${route.grade} | ${attempts.length} attempts`;
+        meta.className = 'compact-meta';
+        meta.textContent = `Set ${route.setDate} · Grade ${route.grade} · ${attempts.length} attempts`;
+        const chevron = document.createElement('span');
+        chevron.className = 'compact-chevron';
+        chevron.textContent = '›';
+        chevron.setAttribute('aria-hidden', 'true');
+        textWrap.append(title, meta);
+        summary.append(textWrap, chevron);
+        const details = document.createElement('div');
+        details.className = 'compact-details';
         const detail = document.createElement('div');
         detail.className = 'meta';
         detail.textContent = lastClimbed ? `Last climbed ${lastClimbed}` : 'No climbs yet';
@@ -558,7 +589,8 @@ const renderRoutes = () => {
             setMessage('Route deleted.');
         });
         actions.append(editButton, deleteButton);
-        card.append(title, meta, detail, actions);
+        details.append(detail, actions);
+        card.append(summary, details);
         routeList.appendChild(card);
     });
 };
@@ -578,21 +610,31 @@ const renderAttempts = () => {
         const route = findRouteById(attempt.routeId);
         if (!route)
             return;
-        const card = document.createElement('div');
-        card.className = 'list-item';
-        const title = document.createElement('strong');
-        title.textContent = `${route.gymName} - Rope ${route.ropeNumber} ${route.color}`;
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.textContent = `${attempt.climbDate} | ${route.grade} | Attempt ${attempt.attemptIndex}`;
-        const completion = document.createElement('div');
-        completion.className = 'meta';
         const completionLabel = attempt.completionStyle === 'send_clean'
             ? 'Send (no rest)'
             : attempt.completionStyle === 'send_rested'
                 ? 'Send (rested)'
                 : 'Attempt only';
-        completion.textContent = completionLabel;
+        const card = document.createElement('details');
+        card.className = 'list-item compact-card';
+        const summary = document.createElement('summary');
+        summary.className = 'compact-summary';
+        const textWrap = document.createElement('div');
+        textWrap.className = 'compact-text';
+        const title = document.createElement('div');
+        title.className = 'compact-title';
+        title.textContent = `${route.gymName} - Rope ${route.ropeNumber} ${route.color}`;
+        const meta = document.createElement('div');
+        meta.className = 'compact-meta';
+        meta.textContent = `${attempt.climbDate} · ${route.grade} · Attempt ${attempt.attemptIndex} · ${completionLabel}`;
+        const chevron = document.createElement('span');
+        chevron.className = 'compact-chevron';
+        chevron.textContent = '›';
+        chevron.setAttribute('aria-hidden', 'true');
+        textWrap.append(title, meta);
+        summary.append(textWrap, chevron);
+        const details = document.createElement('div');
+        details.className = 'compact-details';
         const notes = document.createElement('div');
         notes.className = 'meta';
         notes.textContent = attempt.notes ? `Notes: ${attempt.notes}` : 'Notes: -';
@@ -643,7 +685,8 @@ const renderAttempts = () => {
             setMessage('Attempt deleted.');
         });
         actions.append(editButton, deleteButton);
-        card.append(title, meta, completion, notes, actions);
+        details.append(notes, actions);
+        card.append(summary, details);
         attemptList.appendChild(card);
     });
 };
@@ -681,14 +724,40 @@ const renderStats = () => {
     });
     statMax.textContent = maxGrade ?? '-';
     gradeDistribution.innerHTML = '';
+    const chartStyle = gradeChartStyleSelect?.value ?? loadChartStyle();
+    gradeDistribution.className = `grade-chart${chartStyle === 'histogram' ? ' histogram' : ''}`;
     if (gradeCounts.size === 0) {
         gradeDistribution.innerHTML = '<div class="empty">No attempts for this session.</div>';
         return;
     }
     const maxCount = Math.max(...gradeCounts.values());
-    [...gradeCounts.entries()]
-        .sort((a, b) => compareGrades(a[0], b[0]))
-        .forEach(([grade, count]) => {
+    const entries = [...gradeCounts.entries()].sort((a, b) => compareGrades(a[0], b[0]));
+    if (chartStyle === 'histogram') {
+        const grid = document.createElement('div');
+        grid.className = 'histogram-grid';
+        entries.forEach(([grade, count]) => {
+            const column = document.createElement('div');
+            column.className = 'histogram-bar';
+            const countLabel = document.createElement('div');
+            countLabel.className = 'histogram-count';
+            countLabel.textContent = String(count);
+            const track = document.createElement('div');
+            track.className = 'histogram-track';
+            const fill = document.createElement('div');
+            fill.className = 'histogram-fill';
+            const height = Math.max(8, Math.round((count / maxCount) * 100));
+            fill.style.height = `${height}%`;
+            const gradeLabel = document.createElement('div');
+            gradeLabel.className = 'histogram-label';
+            gradeLabel.textContent = grade;
+            track.appendChild(fill);
+            column.append(countLabel, track, gradeLabel);
+            grid.appendChild(column);
+        });
+        gradeDistribution.appendChild(grid);
+        return;
+    }
+    entries.forEach(([grade, count]) => {
         const bar = document.createElement('div');
         bar.className = 'grade-bar';
         const header = document.createElement('div');
@@ -734,52 +803,52 @@ const renderRouteSearchResult = (routes) => {
         const attempts = state.data.attempts
             .filter((attempt) => attempt.routeId === route.routeId)
             .sort((a, b) => b.climbDate.localeCompare(a.climbDate));
-        const header = document.createElement('div');
-        header.className = 'list-item';
-        const title = document.createElement('strong');
+        const sends = attempts.filter((attempt) => attempt.completionStyle !== 'attempt');
+        const lastSend = sends[0]?.climbDate ?? '-';
+        const card = document.createElement('details');
+        card.className = 'list-item compact-card';
+        const summary = document.createElement('summary');
+        summary.className = 'compact-summary';
+        const textWrap = document.createElement('div');
+        textWrap.className = 'compact-text';
+        const title = document.createElement('div');
+        title.className = 'compact-title';
         title.textContent = `${route.gymName} - Rope ${route.ropeNumber} ${route.color}`;
         const meta = document.createElement('div');
-        meta.className = 'meta';
-        meta.textContent = `Set ${route.setDate} | Grade ${route.grade}`;
-        const history = document.createElement('div');
-        history.className = 'meta';
-        const sends = attempts.filter((attempt) => attempt.completionStyle !== 'attempt');
-        if (sends.length === 0) {
-            history.textContent = 'No sends yet.';
-        }
-        else {
-            history.textContent = `Last send: ${sends[0]?.climbDate ?? '-'}`;
-        }
-        header.append(title, meta, history);
-        routeSearchResult.appendChild(header);
-        const attemptsWrapper = document.createElement('div');
-        attemptsWrapper.className = 'list';
+        meta.className = 'compact-meta';
+        meta.textContent = `Set ${route.setDate} · Grade ${route.grade} · Last send ${lastSend}`;
+        const chevron = document.createElement('span');
+        chevron.className = 'compact-chevron';
+        chevron.textContent = '›';
+        chevron.setAttribute('aria-hidden', 'true');
+        textWrap.append(title, meta);
+        summary.append(textWrap, chevron);
+        const details = document.createElement('div');
+        details.className = 'compact-details';
         if (attempts.length === 0) {
             const empty = document.createElement('div');
-            empty.className = 'empty';
+            empty.className = 'meta';
             empty.textContent = 'No attempts logged yet.';
-            attemptsWrapper.appendChild(empty);
+            details.appendChild(empty);
         }
         else {
             attempts.forEach((attempt) => {
-                const card = document.createElement('div');
-                card.className = 'list-item';
-                const metaLine = document.createElement('div');
-                metaLine.className = 'meta';
                 const completionLabel = attempt.completionStyle === 'send_clean'
                     ? 'Send (no rest)'
                     : attempt.completionStyle === 'send_rested'
                         ? 'Send (rested)'
                         : 'Attempt only';
-                metaLine.textContent = `${attempt.climbDate} | Attempt ${attempt.attemptIndex} | ${completionLabel}`;
+                const line = document.createElement('div');
+                line.className = 'meta';
+                line.textContent = `${attempt.climbDate} · Attempt ${attempt.attemptIndex} · ${completionLabel}`;
                 const notes = document.createElement('div');
                 notes.className = 'meta';
                 notes.textContent = attempt.notes ? `Notes: ${attempt.notes}` : 'Notes: -';
-                card.append(metaLine, notes);
-                attemptsWrapper.appendChild(card);
+                details.append(line, notes);
             });
         }
-        routeSearchResult.appendChild(attemptsWrapper);
+        card.append(summary, details);
+        routeSearchResult.appendChild(card);
     });
 };
 const renderAll = () => {

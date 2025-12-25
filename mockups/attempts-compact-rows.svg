@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1100" viewBox="0 0 800 1100">
+  <rect width="800" height="1100" fill="#f6efe6"/>
+  <rect x="40" y="40" width="720" height="1020" rx="28" fill="#fff8ef" stroke="#e5d6c7"/>
+  <text x="80" y="110" font-family="Arial, sans-serif" font-size="28" fill="#3b2f25" font-weight="700">Recent attempts</text>
+  <text x="80" y="145" font-family="Arial, sans-serif" font-size="16" fill="#7a6c60">Compact rows with expandable details</text>
+
+  <g font-family="Arial, sans-serif" font-size="14" fill="#3b2f25">
+    <rect x="80" y="180" width="640" height="70" rx="14" fill="#fce8d2" stroke="#f2caa2"/>
+    <text x="100" y="212" font-weight="700">Mesa Rim ATX · Rope 113 Red</text>
+    <text x="100" y="235" fill="#7a6c60">2025-12-23 · 5.8 · Attempt 1 · Send</text>
+    <text x="560" y="235" fill="#7a6c60">›</text>
+
+    <rect x="80" y="260" width="640" height="70" rx="14" fill="#fce8d2" stroke="#f2caa2"/>
+    <text x="100" y="292" font-weight="700">Mesa Rim ATX · Rope 23 Purple</text>
+    <text x="100" y="315" fill="#7a6c60">2025-12-23 · 5.10d · Attempt 1 · Rested</text>
+    <text x="560" y="315" fill="#7a6c60">›</text>
+
+    <rect x="80" y="340" width="640" height="70" rx="14" fill="#fce8d2" stroke="#f2caa2"/>
+    <text x="100" y="372" font-weight="700">Mesa Rim ATX · Rope 30 Green</text>
+    <text x="100" y="395" fill="#7a6c60">2025-12-21 · 5.9 · Attempt 2 · Attempt</text>
+    <text x="560" y="395" fill="#7a6c60">›</text>
+  </g>
+
+  <g font-family="Arial, sans-serif" font-size="13" fill="#7a6c60">
+    <text x="80" y="460">Tap a row to expand notes and actions.</text>
+  </g>
+
+  <rect x="80" y="500" width="640" height="220" rx="18" fill="#fff" stroke="#e5d6c7"/>
+  <text x="100" y="535" font-family="Arial, sans-serif" font-size="16" fill="#3b2f25" font-weight="700">Expanded row example</text>
+  <text x="100" y="565" font-family="Arial, sans-serif" font-size="14" fill="#7a6c60">Notes: Warmup, good movement. Fell at bolt 3.</text>
+  <rect x="100" y="590" width="110" height="36" rx="18" fill="#f59e0b"/>
+  <text x="130" y="614" font-family="Arial, sans-serif" font-size="14" fill="#fff" font-weight="700">Edit</text>
+  <rect x="220" y="590" width="110" height="36" rx="18" fill="#fff" stroke="#f59e0b"/>
+  <text x="250" y="614" font-family="Arial, sans-serif" font-size="14" fill="#b45309" font-weight="700">Delete</text>
+</svg>

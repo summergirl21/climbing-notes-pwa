@@ -2,7 +2,7 @@
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-const CACHE_NAME = 'climbing-notes-v2';
+const CACHE_NAME = 'climbing-notes-v6';
 const STATIC_ASSETS = [
   './',
   './index.html',

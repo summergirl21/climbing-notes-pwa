@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1100" viewBox="0 0 800 1100">
+  <rect width="800" height="1100" fill="#f6efe6"/>
+  <rect x="40" y="40" width="720" height="1020" rx="28" fill="#fff8ef" stroke="#e5d6c7"/>
+  <text x="80" y="110" font-family="Arial, sans-serif" font-size="28" fill="#3b2f25" font-weight="700">Attempts (table layout)</text>
+  <text x="80" y="145" font-family="Arial, sans-serif" font-size="16" fill="#7a6c60">Dense columns, tap row for notes</text>
+
+  <rect x="80" y="180" width="640" height="36" rx="10" fill="#fce8d2" stroke="#f2caa2"/>
+  <g font-family="Arial, sans-serif" font-size="13" fill="#7a6c60" font-weight="700">
+    <text x="100" y="203">Date</text>
+    <text x="210" y="203">Gym</text>
+    <text x="360" y="203">Rope</text>
+    <text x="430" y="203">Grade</text>
+    <text x="500" y="203">Style</text>
+  </g>
+
+  <g font-family="Arial, sans-serif" font-size="13" fill="#3b2f25">
+    <rect x="80" y="225" width="640" height="44" rx="10" fill="#fff" stroke="#e5d6c7"/>
+    <text x="100" y="252">2025-12-23</text>
+    <text x="210" y="252">Mesa Rim</text>
+    <text x="360" y="252">113 Red</text>
+    <text x="430" y="252">5.8</text>
+    <text x="500" y="252">Send</text>
+
+    <rect x="80" y="275" width="640" height="44" rx="10" fill="#fff" stroke="#e5d6c7"/>
+    <text x="100" y="302">2025-12-23</text>
+    <text x="210" y="302">Mesa Rim</text>
+    <text x="360" y="302">23 Purple</text>
+    <text x="430" y="302">5.10d</text>
+    <text x="500" y="302">Rested</text>
+
+    <rect x="80" y="325" width="640" height="44" rx="10" fill="#fff" stroke="#e5d6c7"/>
+    <text x="100" y="352">2025-12-21</text>
+    <text x="210" y="352">Mesa Rim</text>
+    <text x="360" y="352">30 Green</text>
+    <text x="430" y="352">5.9</text>
+    <text x="500" y="352">Attempt</text>
+  </g>
+
+  <text x="80" y="420" font-family="Arial, sans-serif" font-size="13" fill="#7a6c60">On mobile, collapse to 2-line rows with sticky headers.</text>
+</svg>

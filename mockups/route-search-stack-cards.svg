@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1200" viewBox="0 0 800 1200">
+  <rect width="800" height="1200" fill="#f6efe6"/>
+  <rect x="40" y="40" width="720" height="1120" rx="28" fill="#fff8ef" stroke="#e5d6c7"/>
+  <text x="80" y="110" font-family="Arial, sans-serif" font-size="28" fill="#3b2f25" font-weight="700">Route search</text>
+  <text x="80" y="145" font-family="Arial, sans-serif" font-size="16" fill="#7a6c60">Stacked route cards with collapsible attempts</text>
+
+  <rect x="80" y="190" width="640" height="90" rx="16" fill="#fce8d2" stroke="#f2caa2"/>
+  <text x="100" y="220" font-family="Arial, sans-serif" font-size="14" fill="#3b2f25" font-weight="700">Mesa Rim ATX · Rope 23 Purple</text>
+  <text x="100" y="245" font-family="Arial, sans-serif" font-size="12" fill="#7a6c60">Set 2025-11-20 · Grade 5.10d · 3 attempts</text>
+  <text x="100" y="268" font-family="Arial, sans-serif" font-size="12" fill="#7a6c60">Last send 2025-12-23</text>
+  <rect x="580" y="215" width="120" height="32" rx="16" fill="#fff" stroke="#f59e0b"/>
+  <text x="605" y="236" font-family="Arial, sans-serif" font-size="12" fill="#b45309" font-weight="700">View attempts</text>
+
+  <rect x="80" y="300" width="640" height="110" rx="16" fill="#fff" stroke="#e5d6c7"/>
+  <text x="100" y="330" font-family="Arial, sans-serif" font-size="13" fill="#7a6c60">2025-12-23 · Send (rested)</text>
+  <text x="100" y="355" font-family="Arial, sans-serif" font-size="13" fill="#7a6c60">2025-12-20 · Attempt only</text>
+  <text x="100" y="380" font-family="Arial, sans-serif" font-size="13" fill="#7a6c60">2025-12-18 · Send (no rest)</text>
+</svg>
