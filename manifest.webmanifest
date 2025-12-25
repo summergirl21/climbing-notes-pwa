@@ -1,11 +1,11 @@
 {
-  "name": "Hello PWA",
-  "short_name": "HelloPWA",
+  "name": "Climbing Notes",
+  "short_name": "ClimbNotes",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
-  "background_color": "#0b1223",
-  "theme_color": "#406fff",
+  "background_color": "#f4efe6",
+  "theme_color": "#d97706",
   "icons": [
     {
       "src": "./assets/icons/icon-192.png",

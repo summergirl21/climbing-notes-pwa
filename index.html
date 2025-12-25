@@ -3,18 +3,26 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#406fff">
+  <meta name="theme-color" content="#f4efe6">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./assets/icons/icon-192.png" sizes="192x192">
   <link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
-  <title>Hello PWA</title>
+  <title>Climbing Notes</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #0f172a;
-      --card: #111827;
-      --text: #e5e7eb;
-      --accent: #406fff;
+      --ink: #1f1d1a;
+      --muted: #6d655b;
+      --bg: #f4efe6;
+      --panel: #fff8ef;
+      --panel-strong: #fce8d2;
+      --accent: #d97706;
+      --accent-dark: #9a4c08;
+      --accent-cool: #0f766e;
+      --line: rgba(31, 29, 26, 0.12);
+      --shadow: 0 18px 45px rgba(31, 29, 26, 0.12);
+      --font-head: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+      --font-body: "Optima", "Trebuchet MS", sans-serif;
     }
 
     * {
@@ -24,84 +32,85 @@
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-      background: radial-gradient(circle at 20% 20%, #1e293b, #0b1223 40%),
-                  radial-gradient(circle at 80% 0%, #21386c, #0b1223 35%),
-                  linear-gradient(180deg, #0b1223 0%, #0b1223 60%, #0f172a 100%);
-      color: var(--text);
-      display: grid;
-      place-items: center;
+      font-family: var(--font-body);
+      color: var(--ink);
+      background: radial-gradient(circle at 15% 0%, #f8d6b0, transparent 50%),
+                  radial-gradient(circle at 90% 10%, #c9e6e1, transparent 45%),
+                  linear-gradient(160deg, #f4efe6 0%, #efe5d8 45%, #f6efe1 100%);
       padding: 24px;
     }
 
-    main {
-      width: min(560px, 100%);
-      background: var(--card);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      border-radius: 20px;
-      padding: 32px;
-      box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
-      text-align: center;
+    .app {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: grid;
+      gap: 20px;
+    }
+
+    header {
+      display: grid;
+      gap: 18px;
+      align-items: center;
+      grid-template-columns: minmax(0, 1fr) auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      padding: 22px 26px;
+      box-shadow: var(--shadow);
       position: relative;
       overflow: hidden;
     }
 
-    main::before, main::after {
+    header::after {
       content: "";
       position: absolute;
-      border-radius: 50%;
-      filter: blur(80px);
-      opacity: 0.25;
+      width: 260px;
+      height: 260px;
+      background: radial-gradient(circle at 30% 30%, rgba(217, 119, 6, 0.28), transparent 65%);
+      top: -120px;
+      right: -120px;
       pointer-events: none;
     }
 
-    main::before {
-      width: 240px;
-      height: 240px;
-      background: #406fff;
-      top: -60px;
-      right: -120px;
-    }
-
-    main::after {
-      width: 200px;
-      height: 200px;
-      background: #10b981;
-      bottom: -80px;
-      left: -90px;
+    .eyebrow {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.22em;
+      color: var(--accent-dark);
+      margin: 0 0 6px;
+      font-weight: 700;
     }
 
     h1 {
-      margin: 0 0 12px;
-      font-size: clamp(28px, 5vw, 36px);
+      font-family: var(--font-head);
+      font-size: clamp(28px, 4vw, 44px);
+      margin: 0 0 6px;
       letter-spacing: -0.02em;
     }
 
-    p {
-      margin: 0 0 18px;
-      color: #cbd5e1;
-      line-height: 1.6;
+    .tagline {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.5;
     }
 
-    .pill {
+    .status-card {
+      display: grid;
+      gap: 10px;
+      background: var(--panel-strong);
+      border-radius: 16px;
+      padding: 14px 16px;
+      border: 1px solid rgba(217, 119, 6, 0.2);
+      min-width: 220px;
+    }
+
+    .status-row {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
-      border-radius: 999px;
-      background: rgba(64, 111, 255, 0.15);
-      color: #dbeafe;
-      border: 1px solid rgba(64, 111, 255, 0.4);
-      margin-bottom: 16px;
+      font-weight: 700;
       font-size: 14px;
-    }
-
-    .status {
-      display: inline-flex;
-      gap: 6px;
-      align-items: center;
-      margin-top: 6px;
-      font-weight: 600;
     }
 
     .dot {
@@ -113,49 +122,391 @@
       transition: background 0.2s ease, box-shadow 0.2s ease;
     }
 
-    button {
-      background: var(--accent);
-      border: none;
-      color: #f8fafc;
-      padding: 12px 18px;
+    .grid {
+      display: grid;
+      gap: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+
+    .panel {
+      background: var(--panel);
+      border-radius: 20px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      display: grid;
+      gap: 14px;
+    }
+
+    .panel h2 {
+      margin: 0;
+      font-family: var(--font-head);
+      font-size: 20px;
+    }
+
+    .panel p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    input,
+    select,
+    textarea {
+      font: inherit;
+      padding: 10px 12px;
       border-radius: 12px;
+      border: 1px solid var(--line);
+      background: white;
+      color: var(--ink);
+    }
+
+    textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .two-col {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button {
+      border: none;
+      border-radius: 12px;
+      padding: 10px 16px;
       font-weight: 700;
       cursor: pointer;
+      font-family: var(--font-head);
+    }
+
+    .primary {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 12px 24px rgba(217, 119, 6, 0.28);
       transition: transform 0.15s ease, box-shadow 0.15s ease;
-      box-shadow: 0 12px 30px rgba(64, 111, 255, 0.35);
     }
 
-    button:hover {
+    .primary:hover {
       transform: translateY(-1px);
-      box-shadow: 0 14px 36px rgba(64, 111, 255, 0.45);
+      box-shadow: 0 14px 30px rgba(217, 119, 6, 0.35);
     }
 
-    button:active {
-      transform: translateY(0);
-      box-shadow: 0 8px 24px rgba(64, 111, 255, 0.4);
+    .ghost {
+      background: transparent;
+      color: var(--accent-dark);
+      border: 1px solid rgba(217, 119, 6, 0.4);
     }
 
-    footer {
-      margin-top: 18px;
-      color: #94a3b8;
+    .pill {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      background: rgba(15, 118, 110, 0.12);
+      color: #0f766e;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .message {
+      font-size: 13px;
+      color: var(--accent-dark);
+    }
+
+    .list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .list-item {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      background: white;
+      display: grid;
+      gap: 6px;
+    }
+
+    .list-item strong {
+      font-family: var(--font-head);
       font-size: 14px;
+    }
+
+    .meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .stat-grid {
+      display: grid;
+      gap: 10px;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    }
+
+    .stat {
+      background: white;
+      border-radius: 14px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      font-family: var(--font-head);
+    }
+
+    .stat-label {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .grade-list {
+      display: grid;
+      gap: 6px;
+      font-size: 13px;
+    }
+
+    .empty {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 8px 0;
+    }
+
+    @media (max-width: 900px) {
+      header {
+        grid-template-columns: 1fr;
+      }
+
+      .status-card {
+        width: 100%;
+      }
     }
   </style>
 </head>
 <body>
-  <main>
-    <div class="pill">🚀 Progressive Web App ready for GitHub Pages</div>
-    <h1>Hello, offline web!</h1>
-    <p>This minimal PWA is installable, works offline, and is ready to publish on GitHub Pages. Try toggling airplane mode and refreshing.</p>
+  <div class="app">
+    <header>
+      <div>
+        <p class="eyebrow">Climbing Notes</p>
+        <h1>Track your sessions, not just your sends.</h1>
+        <p class="tagline">Log routes and attempts across gyms. Search past climbs and see session stats at a glance.</p>
+      </div>
+      <div class="status-card">
+        <div class="status-row">
+          <div class="dot" id="onlineDot"></div>
+          <span id="statusText">Checking connection...</span>
+        </div>
+        <button id="installButton" class="ghost" hidden>Install app</button>
+        <span class="pill">Offline ready</span>
+      </div>
+    </header>
 
-    <button id="installButton" hidden>Install this app</button>
-    <div class="status">
-      <div class="dot" id="onlineDot"></div>
-      <span id="statusText">Checking connection...</span>
-    </div>
+    <div id="messageBar" class="message" role="status"></div>
 
-    <footer>Manifest + service worker are already configured. Adjust text and icons to make it yours.</footer>
-  </main>
+    <main class="grid">
+      <section class="panel">
+        <h2>Log an attempt</h2>
+        <p>Use the same rope, color, and set date to identify a route.</p>
+        <form id="attemptForm">
+          <label>
+            Gym
+            <select id="attemptGym" required></select>
+          </label>
+          <label>
+            Existing route
+            <select id="routePicker">
+              <option value="">Select a route to fill details</option>
+            </select>
+          </label>
+          <div class="two-col">
+            <label>
+              Rope number
+              <input id="ropeNumber" type="text" required>
+            </label>
+            <label>
+              Color
+              <input id="routeColor" type="text" required>
+            </label>
+          </div>
+          <div class="two-col">
+            <label>
+              Set date
+              <input id="setDate" type="date" required>
+            </label>
+            <label>
+              Grade (Yosemite)
+              <input id="routeGrade" type="text" placeholder="5.10a" required>
+            </label>
+          </div>
+          <div class="two-col">
+            <label>
+              Climb date
+              <input id="climbDate" type="date" required>
+            </label>
+            <label>
+              Completion style
+              <select id="completionStyle">
+                <option value="send_clean">Send (no rest)</option>
+                <option value="send_rested">Send (rested)</option>
+                <option value="attempt">Attempt only</option>
+              </select>
+            </label>
+          </div>
+          <label>
+            Notes
+            <textarea id="attemptNotes" placeholder="Beta, fall, feels, etc."></textarea>
+          </label>
+          <div class="actions">
+            <button type="submit" class="primary">Save attempt</button>
+            <button type="button" id="attemptReset" class="ghost">Clear</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Session stats</h2>
+        <p>Stats are calculated from your logged attempts.</p>
+        <form id="sessionForm">
+          <div class="two-col">
+            <label>
+              Session date
+              <input id="sessionDate" type="date" required>
+            </label>
+            <label>
+              Gym
+              <select id="sessionGym">
+                <option value="">All gyms</option>
+              </select>
+            </label>
+          </div>
+        </form>
+        <div class="stat-grid">
+          <div class="stat">
+            <div class="stat-value" id="statTotal">0</div>
+            <div class="stat-label">Total attempts</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="statMax">-</div>
+            <div class="stat-label">Max grade</div>
+          </div>
+        </div>
+        <div>
+          <strong>Grade distribution</strong>
+          <div id="gradeDistribution" class="grade-list"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Route search</h2>
+        <p>Find a route and see all past attempts.</p>
+        <form id="routeSearchForm">
+          <label>
+            Gym
+            <select id="searchGym" required></select>
+          </label>
+          <div class="two-col">
+            <label>
+              Rope number
+              <input id="searchRope" type="text" required>
+            </label>
+            <label>
+              Color
+              <input id="searchColor" type="text" required>
+            </label>
+          </div>
+          <label>
+            Set date
+            <input id="searchSetDate" type="date" required>
+          </label>
+          <div class="actions">
+            <button type="submit" class="primary">Search route</button>
+            <button type="button" id="searchReset" class="ghost">Clear</button>
+          </div>
+        </form>
+        <div id="routeSearchResult"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Recent attempts</h2>
+        <p>Latest 12 attempts across all gyms.</p>
+        <div id="attemptList" class="list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Routes</h2>
+        <p>Create or update routes for each gym.</p>
+        <form id="routeForm">
+          <label>
+            Gym
+            <select id="routeGym" required></select>
+          </label>
+          <div class="two-col">
+            <label>
+              Rope number
+              <input id="routeRope" type="text" required>
+            </label>
+            <label>
+              Color
+              <input id="routeColorInput" type="text" required>
+            </label>
+          </div>
+          <div class="two-col">
+            <label>
+              Set date
+              <input id="routeSetDate" type="date" required>
+            </label>
+            <label>
+              Grade (Yosemite)
+              <input id="routeGradeInput" type="text" placeholder="5.9" required>
+            </label>
+          </div>
+          <div class="actions">
+            <button type="submit" class="primary" id="routeSave">Save route</button>
+            <button type="button" id="routeClear" class="ghost">Clear</button>
+          </div>
+        </form>
+        <div id="routeList" class="list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Gyms</h2>
+        <p>Add, rename, or remove gyms.</p>
+        <form id="gymForm">
+          <label>
+            Gym name
+            <input id="gymName" type="text" placeholder="Summit Climbing" required>
+          </label>
+          <div class="actions">
+            <button type="submit" class="primary" id="gymSave">Save gym</button>
+            <button type="button" id="gymClear" class="ghost">Clear</button>
+          </div>
+        </form>
+        <div id="gymList" class="list"></div>
+      </section>
+    </main>
+  </div>
 
   <noscript>This app needs JavaScript for its offline features.</noscript>
   <script type="module" src="./main.js"></script>

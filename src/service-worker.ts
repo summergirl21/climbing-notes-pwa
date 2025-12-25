@@ -2,10 +2,11 @@
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
-const CACHE_NAME = 'hello-pwa-v1';
+const CACHE_NAME = 'climbing-notes-v1';
 const STATIC_ASSETS = [
   './',
   './index.html',
+  './main.js',
   './manifest.webmanifest',
   './assets/icons/icon-192.png',
   './assets/icons/icon-512.png'
