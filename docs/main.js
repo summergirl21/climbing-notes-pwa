@@ -1,6 +1,59 @@
 "use strict";
 const STORAGE_KEY = 'climbingNotesData';
-const DEFAULT_DATA = { version: 1, gyms: [], routes: [], attempts: [] };
+const DB_NAME = 'climbingNotesDb';
+const DB_STORE = 'appData';
+const DB_DATA_KEY = 'data';
+const createEmptyData = () => ({ version: 1, gyms: [], routes: [], attempts: [] });
+const normalizeData = (data) => ({
+    version: data.version ?? 1,
+    gyms: data.gyms ?? [],
+    routes: data.routes ?? [],
+    attempts: data.attempts ?? [],
+});
+const loadLegacyData = () => {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw)
+            return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || !Array.isArray(parsed.gyms)) {
+            return null;
+        }
+        return normalizeData(parsed);
+    }
+    catch (error) {
+        console.warn('Failed to load legacy data', error);
+        return null;
+    }
+};
+const openDatabase = () => new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) {
+        reject(new Error('IndexedDB is unavailable'));
+        return;
+    }
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) {
+            db.createObjectStore(DB_STORE, { keyPath: 'key' });
+        }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+});
+const requestPersistentStorage = async () => {
+    if (!('storage' in navigator) || !navigator.storage.persist)
+        return;
+    try {
+        const persisted = await navigator.storage.persisted();
+        if (!persisted) {
+            await navigator.storage.persist();
+        }
+    }
+    catch (error) {
+        console.warn('Failed to request persistent storage', error);
+    }
+};
 const statusText = document.getElementById('statusText');
 const onlineDot = document.getElementById('onlineDot');
 const installButton = document.getElementById('installButton');
@@ -80,32 +133,84 @@ installButton?.addEventListener('click', async () => {
     deferredPrompt = null;
     installButton.hidden = true;
 });
-const loadData = () => {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw)
-        return { ...DEFAULT_DATA };
+const saveData = async (data) => {
+    const normalized = normalizeData(data);
+    if (!('indexedDB' in window)) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+        return;
+    }
+    let db = null;
     try {
-        const parsed = JSON.parse(raw);
-        if (!parsed || !Array.isArray(parsed.gyms)) {
-            return { ...DEFAULT_DATA };
-        }
-        return {
-            version: parsed.version ?? 1,
-            gyms: parsed.gyms ?? [],
-            routes: parsed.routes ?? [],
-            attempts: parsed.attempts ?? [],
-        };
+        db = await openDatabase();
+        await new Promise((resolve, reject) => {
+            const tx = db?.transaction(DB_STORE, 'readwrite');
+            if (!tx) {
+                reject(new Error('Failed to create transaction'));
+                return;
+            }
+            const store = tx.objectStore(DB_STORE);
+            store.put({ key: DB_DATA_KEY, value: normalized });
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
     }
     catch (error) {
-        console.error('Failed to load data', error);
-        return { ...DEFAULT_DATA };
+        console.error('Failed to save data', error);
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+        }
+        catch (fallbackError) {
+            console.error('Failed to save fallback data', fallbackError);
+        }
+    }
+    finally {
+        db?.close();
     }
 };
-const saveData = (data) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+const readData = async () => {
+    if (!('indexedDB' in window)) {
+        return loadLegacyData() ?? createEmptyData();
+    }
+    try {
+        const db = await openDatabase();
+        return await new Promise((resolve) => {
+            const tx = db.transaction(DB_STORE, 'readonly');
+            const store = tx.objectStore(DB_STORE);
+            const request = store.get(DB_DATA_KEY);
+            request.onsuccess = () => {
+                const record = request.result;
+                if (record?.value) {
+                    resolve(normalizeData(record.value));
+                    return;
+                }
+                const legacy = loadLegacyData();
+                if (legacy) {
+                    void saveData(legacy);
+                    resolve(legacy);
+                    return;
+                }
+                resolve(createEmptyData());
+            };
+            request.onerror = () => {
+                console.error('Failed to read data', request.error);
+                resolve(loadLegacyData() ?? createEmptyData());
+            };
+            tx.oncomplete = () => {
+                db.close();
+            };
+            tx.onabort = () => {
+                db.close();
+            };
+        });
+    }
+    catch (error) {
+        console.error('Failed to open database', error);
+        return loadLegacyData() ?? createEmptyData();
+    }
 };
 const state = {
-    data: loadData(),
+    data: createEmptyData(),
     editingGymName: '',
     editingRouteId: '',
     editingAttemptId: '',
@@ -524,61 +629,78 @@ const renderStats = () => {
         gradeDistribution.appendChild(line);
     });
 };
-const renderRouteSearchResult = (route, attempts) => {
+const renderRouteSearchResult = (routes) => {
     if (!routeSearchResult)
         return;
     routeSearchResult.innerHTML = '';
-    if (!route) {
-        routeSearchResult.innerHTML = '<div class="empty">No matching route found.</div>';
+    if (routes.length === 0) {
+        routeSearchResult.innerHTML = '<div class="empty">No matching routes found.</div>';
         return;
     }
-    const header = document.createElement('div');
-    header.className = 'list-item';
-    const title = document.createElement('strong');
-    title.textContent = `${route.gymName} - Rope ${route.ropeNumber} ${route.color}`;
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = `Set ${route.setDate} | Grade ${route.grade}`;
-    const history = document.createElement('div');
-    history.className = 'meta';
-    const sends = attempts.filter((attempt) => attempt.completionStyle !== 'attempt');
-    if (sends.length === 0) {
-        history.textContent = 'No sends yet.';
-    }
-    else {
-        const latestSend = sends
-            .slice()
-            .sort((a, b) => b.climbDate.localeCompare(a.climbDate))[0]?.climbDate;
-        history.textContent = `Last send: ${latestSend}`;
-    }
-    header.append(title, meta, history);
-    routeSearchResult.appendChild(header);
-    if (attempts.length === 0) {
-        const empty = document.createElement('div');
-        empty.className = 'empty';
-        empty.textContent = 'No attempts logged yet.';
-        routeSearchResult.appendChild(empty);
-        return;
-    }
-    attempts
+    const countLine = document.createElement('div');
+    countLine.className = 'meta';
+    countLine.textContent = `${routes.length} route${routes.length === 1 ? '' : 's'} found.`;
+    routeSearchResult.appendChild(countLine);
+    routes
         .slice()
-        .sort((a, b) => b.climbDate.localeCompare(a.climbDate))
-        .forEach((attempt) => {
-        const card = document.createElement('div');
-        card.className = 'list-item';
-        const metaLine = document.createElement('div');
-        metaLine.className = 'meta';
-        const completionLabel = attempt.completionStyle === 'send_clean'
-            ? 'Send (no rest)'
-            : attempt.completionStyle === 'send_rested'
-                ? 'Send (rested)'
-                : 'Attempt only';
-        metaLine.textContent = `${attempt.climbDate} | Attempt ${attempt.attemptIndex} | ${completionLabel}`;
-        const notes = document.createElement('div');
-        notes.className = 'meta';
-        notes.textContent = attempt.notes ? `Notes: ${attempt.notes}` : 'Notes: -';
-        card.append(metaLine, notes);
-        routeSearchResult.appendChild(card);
+        .sort((a, b) => {
+        if (a.gymName !== b.gymName)
+            return a.gymName.localeCompare(b.gymName);
+        if (a.ropeNumber !== b.ropeNumber) {
+            return a.ropeNumber.localeCompare(b.ropeNumber, undefined, { numeric: true });
+        }
+        return a.setDate.localeCompare(b.setDate);
+    })
+        .forEach((route) => {
+        const attempts = state.data.attempts
+            .filter((attempt) => attempt.routeId === route.routeId)
+            .sort((a, b) => b.climbDate.localeCompare(a.climbDate));
+        const header = document.createElement('div');
+        header.className = 'list-item';
+        const title = document.createElement('strong');
+        title.textContent = `${route.gymName} - Rope ${route.ropeNumber} ${route.color}`;
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = `Set ${route.setDate} | Grade ${route.grade}`;
+        const history = document.createElement('div');
+        history.className = 'meta';
+        const sends = attempts.filter((attempt) => attempt.completionStyle !== 'attempt');
+        if (sends.length === 0) {
+            history.textContent = 'No sends yet.';
+        }
+        else {
+            history.textContent = `Last send: ${sends[0]?.climbDate ?? '-'}`;
+        }
+        header.append(title, meta, history);
+        routeSearchResult.appendChild(header);
+        const attemptsWrapper = document.createElement('div');
+        attemptsWrapper.className = 'list';
+        if (attempts.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty';
+            empty.textContent = 'No attempts logged yet.';
+            attemptsWrapper.appendChild(empty);
+        }
+        else {
+            attempts.forEach((attempt) => {
+                const card = document.createElement('div');
+                card.className = 'list-item';
+                const metaLine = document.createElement('div');
+                metaLine.className = 'meta';
+                const completionLabel = attempt.completionStyle === 'send_clean'
+                    ? 'Send (no rest)'
+                    : attempt.completionStyle === 'send_rested'
+                        ? 'Send (rested)'
+                        : 'Attempt only';
+                metaLine.textContent = `${attempt.climbDate} | Attempt ${attempt.attemptIndex} | ${completionLabel}`;
+                const notes = document.createElement('div');
+                notes.className = 'meta';
+                notes.textContent = attempt.notes ? `Notes: ${attempt.notes}` : 'Notes: -';
+                card.append(metaLine, notes);
+                attemptsWrapper.appendChild(card);
+            });
+        }
+        routeSearchResult.appendChild(attemptsWrapper);
     });
 };
 const renderAll = () => {
@@ -832,18 +954,29 @@ routeSearchForm?.addEventListener('submit', (event) => {
     if (!searchGym || !searchRope || !searchColor || !searchSetDate)
         return;
     const gymName = normalizeText(searchGym.value);
-    const ropeNumber = normalizeText(searchRope.value);
-    const color = normalizeText(searchColor.value);
-    const setDate = searchSetDate.value;
-    if (!gymName || !ropeNumber || !color || !setDate) {
-        setMessage('Fill in all search fields.');
+    const ropeQuery = normalizeText(searchRope.value).toLowerCase();
+    const colorQuery = normalizeText(searchColor.value).toLowerCase();
+    const setDateQuery = searchSetDate.value;
+    if (!gymName) {
+        setMessage('Pick a gym to search.');
         return;
     }
-    const route = findRoute(gymName, ropeNumber, color, setDate);
-    const attempts = route
-        ? state.data.attempts.filter((attempt) => attempt.routeId === route.routeId)
-        : [];
-    renderRouteSearchResult(route, attempts);
+    if (!ropeQuery && !colorQuery && !setDateQuery) {
+        setMessage('Add at least one search field.');
+        return;
+    }
+    const routes = state.data.routes.filter((route) => {
+        if (route.gymName !== gymName)
+            return false;
+        if (ropeQuery && route.ropeNumber.toLowerCase() !== ropeQuery)
+            return false;
+        if (colorQuery && route.color.toLowerCase() !== colorQuery)
+            return false;
+        if (setDateQuery && route.setDate !== setDateQuery)
+            return false;
+        return true;
+    });
+    renderRouteSearchResult(routes);
 });
 searchReset?.addEventListener('click', () => {
     routeSearchForm?.reset();
@@ -857,4 +990,9 @@ if (climbDateInput)
     climbDateInput.value = todayISO();
 if (sessionDateInput)
     sessionDateInput.value = todayISO();
-renderAll();
+const initApp = async () => {
+    await requestPersistentStorage();
+    state.data = await readData();
+    renderAll();
+};
+void initApp();

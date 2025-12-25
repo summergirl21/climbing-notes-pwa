@@ -420,7 +420,7 @@
 
       <section class="panel">
         <h2>Route search</h2>
-        <p>Find a route and see all past attempts.</p>
+        <p>Find a route and see all past attempts. Use any combo of rope, color, or set date.</p>
         <form id="routeSearchForm">
           <label>
             Gym
@@ -428,17 +428,17 @@
           </label>
           <div class="two-col">
             <label>
-              Rope number
-              <input id="searchRope" type="text" required>
+              Rope number (optional)
+              <input id="searchRope" type="text" placeholder="12">
             </label>
             <label>
-              Color
-              <input id="searchColor" type="text" required>
+              Color (optional)
+              <input id="searchColor" type="text" placeholder="Red">
             </label>
           </div>
           <label>
-            Set date
-            <input id="searchSetDate" type="date" required>
+            Set date (optional)
+            <input id="searchSetDate" type="date">
           </label>
           <div class="actions">
             <button type="submit" class="primary">Search route</button>

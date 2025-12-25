@@ -36,7 +36,7 @@
 - Log multiple attempts for the same route on the same day.
 - View a list of climbs with filters:
   - Gym, rope number, color, grade, set date, climb date, completion style.
-- Search by route identity (gym + rope + color + set date) and show:
+- Search routes using any combination of rope number, color, and set date (within a gym), and show:
   - Previous attempts and outcomes
   - Dates of prior climbs
   - Notes and grades from those attempts
@@ -53,5 +53,6 @@
 - Grades must be Yosemite format (`5.x`, including letter suffixes like `5.10a`).
 
 ## Non-functional requirements
-- Data is stored locally by default.
+- Use a persistent storage API to save data locally.
+- App is usable on mobile and desktop form factors.
 - All features work offline.
