@@ -5,7 +5,7 @@
   "scripts": {
     "clean": "rm -rf docs",
     "build": "npm run clean && tsc && npm run copy",
-    "copy": "mkdir -p docs && cp index.html manifest.webmanifest docs && cp -R assets docs/",
+    "copy": "node scripts/build-config.js && cp manifest.webmanifest docs && cp -R assets docs/",
     "preview": "npm run build && python3 -m http.server 8000 -d docs"
   },
   "devDependencies": {
