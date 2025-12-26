@@ -978,6 +978,21 @@
                 <div id="gymList" class="list"></div>
               </div>
             </details>
+            <details class="settings-accordion" id="dataAccordion">
+              <summary class="settings-row">
+                <strong>Data</strong>
+                <span>Import/export</span>
+              </summary>
+              <div class="settings-accordion-body">
+                <p>Export or restore gyms, routes, and attempts as a single CSV file.</p>
+                <div class="actions">
+                  <button type="button" class="primary" id="exportCsvButton">Export CSV</button>
+                  <button type="button" class="ghost" id="importCsvButton">Import CSV</button>
+                  <input id="importCsvInput" type="file" accept=".csv,text/csv" hidden>
+                </div>
+                <p class="meta" id="importCsvStatus">No CSV imported yet.</p>
+              </div>
+            </details>
             <div class="settings-meta">
               <div class="status-card">
                 <div class="status-row">

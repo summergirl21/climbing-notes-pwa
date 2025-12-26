@@ -93,6 +93,10 @@ const themeSelect = document.getElementById('themeSelect');
 const tabButtons = Array.from(document.querySelectorAll('.tab'));
 const tabPanels = Array.from(document.querySelectorAll('.tab-panel'));
 const gradeChartStyleSelect = document.getElementById('gradeChartStyle');
+const exportCsvButton = document.getElementById('exportCsvButton');
+const importCsvButton = document.getElementById('importCsvButton');
+const importCsvInput = document.getElementById('importCsvInput');
+const importCsvStatus = document.getElementById('importCsvStatus');
 const attemptForm = document.getElementById('attemptForm');
 const attemptGym = document.getElementById('attemptGym');
 const routePicker = document.getElementById('routePicker');
@@ -307,6 +311,11 @@ const setMessage = (text) => {
         }, 4000);
     }
 };
+const setImportStatus = (text) => {
+    if (!importCsvStatus)
+        return;
+    importCsvStatus.textContent = text;
+};
 const normalizeText = (value) => value.trim();
 const normalizeGrade = (value) => value.trim().toLowerCase();
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -343,6 +352,381 @@ const compareGrades = (a, b) => {
     if (aValue === null || bValue === null)
         return 0;
     return aValue - bValue;
+};
+const CSV_COLUMNS = [
+    'record_type',
+    'gym_name',
+    'route_id',
+    'attempt_id',
+    'rope_number',
+    'color',
+    'set_date',
+    'grade',
+    'climb_date',
+    'attempt_index',
+    'climb_style',
+    'completion_style',
+    'notes',
+    'created_at',
+    'updated_at',
+];
+const escapeCsvValue = (value) => {
+    const needsQuotes = /[",\n\r]/.test(value);
+    const escaped = value.replace(/"/g, '""');
+    return needsQuotes ? `"${escaped}"` : escaped;
+};
+const buildCsv = (rows) => rows.map((row) => row.map((cell) => escapeCsvValue(cell ?? '')).join(',')).join('\n');
+const parseCsvRows = (text) => {
+    const rows = [];
+    let row = [];
+    let current = '';
+    let inQuotes = false;
+    for (let index = 0; index < text.length; index += 1) {
+        const char = text[index];
+        if (char === '"') {
+            if (inQuotes && text[index + 1] === '"') {
+                current += '"';
+                index += 1;
+            }
+            else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+        if (char === ',' && !inQuotes) {
+            row.push(current);
+            current = '';
+            continue;
+        }
+        if ((char === '\n' || char === '\r') && !inQuotes) {
+            if (char === '\r' && text[index + 1] === '\n') {
+                index += 1;
+            }
+            row.push(current);
+            rows.push(row);
+            row = [];
+            current = '';
+            continue;
+        }
+        current += char;
+    }
+    if (current.length > 0 || row.length > 0) {
+        row.push(current);
+        rows.push(row);
+    }
+    if (rows.length > 0 && rows[0][0]) {
+        rows[0][0] = rows[0][0].replace(/^\uFEFF/, '');
+    }
+    return rows.filter((csvRow) => csvRow.some((cell) => cell.length > 0));
+};
+const pickEarlierTimestamp = (a, b) => (a < b ? a : b);
+const isIncomingNewer = (incoming, existing) => {
+    if (!incoming?.updatedAt)
+        return false;
+    if (!existing?.updatedAt)
+        return true;
+    return incoming.updatedAt > existing.updatedAt;
+};
+const buildCsvRow = (record) => CSV_COLUMNS.map((column) => record[column] ?? '');
+const buildExportRows = (data) => {
+    const rows = [CSV_COLUMNS.slice()];
+    data.gyms
+        .slice()
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((gym) => {
+        rows.push(buildCsvRow({
+            record_type: 'gym',
+            gym_name: gym.name,
+            created_at: gym.createdAt ?? '',
+            updated_at: gym.updatedAt ?? '',
+        }));
+    });
+    data.routes
+        .slice()
+        .sort((a, b) => {
+        if (a.gymName !== b.gymName)
+            return a.gymName.localeCompare(b.gymName);
+        if (a.ropeNumber !== b.ropeNumber)
+            return a.ropeNumber.localeCompare(b.ropeNumber);
+        return a.setDate.localeCompare(b.setDate);
+    })
+        .forEach((route) => {
+        rows.push(buildCsvRow({
+            record_type: 'route',
+            gym_name: route.gymName,
+            route_id: route.routeId,
+            rope_number: route.ropeNumber,
+            color: route.color,
+            set_date: route.setDate,
+            grade: route.grade,
+            created_at: route.createdAt ?? '',
+            updated_at: route.updatedAt ?? '',
+        }));
+    });
+    data.attempts
+        .slice()
+        .sort((a, b) => b.climbDate.localeCompare(a.climbDate))
+        .forEach((attempt) => {
+        rows.push(buildCsvRow({
+            record_type: 'attempt',
+            route_id: attempt.routeId,
+            attempt_id: attempt.attemptId,
+            climb_date: attempt.climbDate,
+            attempt_index: String(attempt.attemptIndex),
+            climb_style: attempt.climbStyle,
+            completion_style: attempt.completionStyle,
+            notes: attempt.notes ?? '',
+            created_at: attempt.createdAt ?? '',
+            updated_at: attempt.updatedAt ?? '',
+        }));
+    });
+    return rows;
+};
+const parseCsvData = (text, nowIso) => {
+    const rows = parseCsvRows(text);
+    if (rows.length === 0) {
+        throw new Error('CSV is empty.');
+    }
+    const header = rows[0].map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'));
+    const headerIndex = new Map();
+    header.forEach((label, index) => {
+        if (label)
+            headerIndex.set(label, index);
+    });
+    if (!headerIndex.has('record_type')) {
+        throw new Error('CSV missing record_type column.');
+    }
+    const getValue = (row, key) => {
+        const index = headerIndex.get(key);
+        if (index === undefined)
+            return '';
+        return row[index] ?? '';
+    };
+    const gyms = [];
+    const routes = [];
+    const attempts = [];
+    let skippedRows = 0;
+    rows.slice(1).forEach((row) => {
+        if (row.every((cell) => cell.trim() === ''))
+            return;
+        const recordType = normalizeText(getValue(row, 'record_type')).toLowerCase();
+        if (!recordType) {
+            skippedRows += 1;
+            return;
+        }
+        if (recordType === 'gym') {
+            const name = normalizeText(getValue(row, 'gym_name'));
+            if (!name) {
+                skippedRows += 1;
+                return;
+            }
+            const createdAt = normalizeText(getValue(row, 'created_at')) || nowIso;
+            const updatedAt = normalizeText(getValue(row, 'updated_at')) || undefined;
+            gyms.push({ name, createdAt, updatedAt });
+            return;
+        }
+        if (recordType === 'route') {
+            const gymName = normalizeText(getValue(row, 'gym_name'));
+            const ropeNumber = normalizeText(getValue(row, 'rope_number'));
+            const color = normalizeText(getValue(row, 'color'));
+            const setDate = normalizeText(getValue(row, 'set_date'));
+            const gradeRaw = normalizeText(getValue(row, 'grade'));
+            if (!gymName || !ropeNumber || !color || !setDate || !gradeRaw) {
+                skippedRows += 1;
+                return;
+            }
+            const grade = normalizeGrade(gradeRaw);
+            if (!isValidGrade(grade)) {
+                skippedRows += 1;
+                return;
+            }
+            const routeId = normalizeText(getValue(row, 'route_id')) || toRouteId(gymName, ropeNumber, color, setDate);
+            const createdAt = normalizeText(getValue(row, 'created_at')) || nowIso;
+            const updatedAt = normalizeText(getValue(row, 'updated_at')) || undefined;
+            routes.push({ routeId, gymName, ropeNumber, color, setDate, grade, createdAt, updatedAt });
+            return;
+        }
+        if (recordType === 'attempt') {
+            const routeId = normalizeText(getValue(row, 'route_id'));
+            const climbDate = normalizeText(getValue(row, 'climb_date'));
+            if (!routeId || !climbDate) {
+                skippedRows += 1;
+                return;
+            }
+            const attemptId = normalizeText(getValue(row, 'attempt_id')) || createId();
+            const attemptIndexValue = Number.parseInt(getValue(row, 'attempt_index'), 10);
+            const attemptIndex = Number.isFinite(attemptIndexValue) && attemptIndexValue > 0 ? attemptIndexValue : 0;
+            const climbStyleRaw = normalizeText(getValue(row, 'climb_style')).toLowerCase();
+            const completionStyleRaw = normalizeText(getValue(row, 'completion_style')).toLowerCase();
+            const climbStyle = climbStyleRaw === 'lead' ? 'lead' : 'top_rope';
+            const completionStyle = completionStyleRaw === 'send_clean' ||
+                completionStyleRaw === 'send_rested' ||
+                completionStyleRaw === 'attempt'
+                ? completionStyleRaw
+                : 'attempt';
+            const notes = getValue(row, 'notes') ?? '';
+            const createdAt = normalizeText(getValue(row, 'created_at')) || nowIso;
+            const updatedAt = normalizeText(getValue(row, 'updated_at')) || undefined;
+            attempts.push({
+                attemptId,
+                routeId,
+                climbDate,
+                attemptIndex,
+                climbStyle,
+                completionStyle,
+                notes,
+                createdAt,
+                updatedAt,
+            });
+            return;
+        }
+        skippedRows += 1;
+    });
+    return { gyms, routes, attempts, skippedRows };
+};
+const mergeGyms = (existing, incoming) => {
+    const map = new Map();
+    existing.forEach((gym) => {
+        map.set(gym.name.toLowerCase(), gym);
+    });
+    let added = 0;
+    let updated = 0;
+    incoming.forEach((gym) => {
+        const key = gym.name.toLowerCase();
+        const current = map.get(key);
+        if (!current) {
+            map.set(key, gym);
+            added += 1;
+            return;
+        }
+        if (isIncomingNewer(gym, current)) {
+            map.set(key, {
+                ...current,
+                ...gym,
+                name: current.name,
+                createdAt: pickEarlierTimestamp(current.createdAt, gym.createdAt),
+            });
+            updated += 1;
+        }
+    });
+    return { gyms: Array.from(map.values()), added, updated };
+};
+const mergeRoutes = (existing, incoming) => {
+    const map = new Map();
+    existing.forEach((route) => {
+        map.set(route.routeId, route);
+    });
+    let added = 0;
+    let updated = 0;
+    incoming.forEach((route) => {
+        const current = map.get(route.routeId);
+        if (!current) {
+            map.set(route.routeId, route);
+            added += 1;
+            return;
+        }
+        if (isIncomingNewer(route, current)) {
+            map.set(route.routeId, {
+                ...current,
+                ...route,
+                routeId: current.routeId,
+                createdAt: pickEarlierTimestamp(current.createdAt, route.createdAt),
+            });
+            updated += 1;
+        }
+    });
+    return { routes: Array.from(map.values()), added, updated };
+};
+const mergeAttempts = (existing, incoming) => {
+    const map = new Map();
+    existing.forEach((attempt) => {
+        map.set(attempt.attemptId, attempt);
+    });
+    let added = 0;
+    let updated = 0;
+    incoming.forEach((attempt) => {
+        const current = map.get(attempt.attemptId);
+        if (!current) {
+            map.set(attempt.attemptId, attempt);
+            added += 1;
+            return;
+        }
+        if (isIncomingNewer(attempt, current)) {
+            map.set(attempt.attemptId, {
+                ...current,
+                ...attempt,
+                attemptId: current.attemptId,
+                createdAt: pickEarlierTimestamp(current.createdAt, attempt.createdAt),
+            });
+            updated += 1;
+        }
+    });
+    return { attempts: Array.from(map.values()), added, updated };
+};
+const normalizeAttemptIndices = (attempts) => {
+    const grouped = new Map();
+    attempts.forEach((attempt) => {
+        const key = `${attempt.routeId}__${attempt.climbDate}`;
+        const existing = grouped.get(key);
+        if (existing) {
+            existing.push(attempt);
+        }
+        else {
+            grouped.set(key, [attempt]);
+        }
+    });
+    grouped.forEach((group) => {
+        const hasInvalid = group.some((attempt) => !attempt.attemptIndex || attempt.attemptIndex < 1);
+        const indexSet = new Set(group.map((attempt) => attempt.attemptIndex));
+        const hasDuplicates = indexSet.size !== group.length;
+        if (!hasInvalid && !hasDuplicates)
+            return;
+        group
+            .slice()
+            .sort((a, b) => {
+            const createdCompare = a.createdAt.localeCompare(b.createdAt);
+            if (createdCompare !== 0)
+                return createdCompare;
+            return a.attemptId.localeCompare(b.attemptId);
+        })
+            .forEach((attempt, index) => {
+            attempt.attemptIndex = index + 1;
+        });
+    });
+};
+const mergeImportedData = (current, imported) => {
+    const nowIso = new Date().toISOString();
+    const gymsToMerge = imported.gyms.slice();
+    const gymKeys = new Set(gymsToMerge.map((gym) => gym.name.toLowerCase()));
+    imported.routes.forEach((route) => {
+        const key = route.gymName.toLowerCase();
+        if (!gymKeys.has(key)) {
+            gymsToMerge.push({ name: route.gymName, createdAt: route.createdAt ?? nowIso });
+            gymKeys.add(key);
+        }
+    });
+    const gymMerge = mergeGyms(current.gyms, gymsToMerge);
+    const routeMerge = mergeRoutes(current.routes, imported.routes);
+    const routeIds = new Set(routeMerge.routes.map((route) => route.routeId));
+    const attemptsToMerge = imported.attempts.filter((attempt) => routeIds.has(attempt.routeId));
+    const skippedAttempts = imported.attempts.length - attemptsToMerge.length;
+    const attemptMerge = mergeAttempts(current.attempts, attemptsToMerge);
+    normalizeAttemptIndices(attemptMerge.attempts);
+    return {
+        data: normalizeData({
+            version: current.version ?? 1,
+            gyms: gymMerge.gyms,
+            routes: routeMerge.routes,
+            attempts: attemptMerge.attempts,
+        }),
+        addedGyms: gymMerge.added,
+        updatedGyms: gymMerge.updated,
+        addedRoutes: routeMerge.added,
+        updatedRoutes: routeMerge.updated,
+        addedAttempts: attemptMerge.added,
+        updatedAttempts: attemptMerge.updated,
+        skippedAttempts,
+    };
 };
 const setFormDisabled = (form, disabled) => {
     if (!form)
@@ -900,6 +1284,63 @@ const renderAll = () => {
         setMessage('Add a gym to start logging climbs.');
     }
 };
+exportCsvButton?.addEventListener('click', () => {
+    const rows = buildExportRows(state.data);
+    const csv = buildCsv(rows);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `climbing-notes-${todayISO()}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setMessage('CSV export downloaded.');
+});
+importCsvButton?.addEventListener('click', () => {
+    importCsvInput?.click();
+});
+importCsvInput?.addEventListener('change', async () => {
+    const input = importCsvInput;
+    if (!input)
+        return;
+    const file = input.files?.[0];
+    if (!file)
+        return;
+    try {
+        const text = await file.text();
+        const parsed = parseCsvData(text, new Date().toISOString());
+        const totalRows = parsed.gyms.length + parsed.routes.length + parsed.attempts.length;
+        if (totalRows === 0) {
+            setMessage('No valid rows found to import.');
+            setImportStatus('No valid rows found in the CSV file.');
+            return;
+        }
+        const confirmImport = window.confirm(`Import ${parsed.gyms.length} gyms, ${parsed.routes.length} routes, and ${parsed.attempts.length} attempts? This will merge with existing data.`);
+        if (!confirmImport) {
+            setImportStatus('Import canceled.');
+            return;
+        }
+        const merged = mergeImportedData(state.data, parsed);
+        state.data = merged.data;
+        await saveData(state.data);
+        renderAll();
+        const updatedTotal = merged.updatedGyms + merged.updatedRoutes + merged.updatedAttempts;
+        const skippedTotal = parsed.skippedRows + merged.skippedAttempts;
+        const status = `Imported ${merged.addedGyms} gyms, ${merged.addedRoutes} routes, ${merged.addedAttempts} attempts. Updated ${updatedTotal}. Skipped ${skippedTotal}.`;
+        setImportStatus(status);
+        setMessage('CSV import complete.');
+    }
+    catch (error) {
+        const message = error instanceof Error ? error.message : 'CSV import failed.';
+        setImportStatus(message);
+        setMessage(message);
+    }
+    finally {
+        input.value = '';
+    }
+});
 attemptGym?.addEventListener('change', () => {
     updateRoutePicker();
 });

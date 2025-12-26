@@ -122,22 +122,20 @@
 
 
 # TODOs:
-[] Icon for app
-[X] Combine gyms tab with one of the other pages, maybe settings?
-[X] Make the top header smaller, remove the offline indicator?
-[X] Add a version number or build date so you can see which version is loaded, in settings
-[] Add import and export data feature
-[] Work more on making data persistent
-[] Add option for lead vs top rope
-[] show multiple recent session on the stats page
-[] show stats for type of send, with/without rest, didn't finish
-[] stats show number of attempts in x recent sessions
-[] Set date and climb date in the attempts tab doesn't seem to be sized correctly, set date also in routes doesn't seem to be sized correctly
-[] Make sure you can list all previous attempts
-[] Picture recognition of the route
-[] Make it work with ratings at Edge works, like 5.10+/-
-[] Why did show install button on android and not iOS?
-[] Proper backend with account and syncing etc
-[X] The attempts list on desktop didn't seem to size the cards nicely
-
-
+- [ ] Icon for app
+- [x] Combine gyms tab with one of the other pages, maybe settings?
+- [x] Make the top header smaller, remove the offline indicator?
+- [x] Add a version number or build date so you can see which version is loaded, in settings
+- [ ] Add import and export data feature
+- [ ] Work more on making data persistent
+- [x] Add option for lead vs top rope
+- [ ] show multiple recent session on the stats page
+- [ ] show stats for type of send, with/without rest, didn't finish
+- [ ] stats show number of attempts in x recent sessions
+- [ ] Set date and climb date in the attempts tab doesn't seem to be sized correctly, set date also in routes doesn't seem to be sized correctly
+- [ ] Make sure you can list all previous attempts
+- [ ] Picture recognition of the route
+- [ ] Make it work with ratings at Edge works, like 5.10+/-
+- [ ] Why did show install button on android and not iOS?
+- [ ] Proper backend with account and syncing etc
+- [x] The attempts list on desktop didn't seem to size the cards nicely
