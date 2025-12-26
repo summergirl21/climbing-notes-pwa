@@ -404,7 +404,17 @@ const finalizeAuthSession = async (clerk, sessionId) => {
     return true;
 };
 const normalizeText = (value) => value.trim();
-const normalizeGrade = (value) => value.trim().toLowerCase();
+const normalizeGrade = (value) => {
+    const trimmed = value.trim().toLowerCase();
+    if (!trimmed)
+        return '';
+    if (trimmed.startsWith('5.'))
+        return trimmed;
+    if (/^\d+([abcd]|[+-])?$/.test(trimmed)) {
+        return `5.${trimmed}`;
+    }
+    return trimmed;
+};
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const createId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -413,16 +423,16 @@ const createId = () => {
     return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 };
 const toRouteId = (gymName, ropeNumber, color, setDate) => `${gymName}:${ropeNumber}:${color}:${setDate}`;
-const isValidGrade = (grade) => /^5\.(\d+)([abcd])?$/.test(normalizeGrade(grade));
+const isValidGrade = (grade) => /^5\.(\d+)([abcd]|[+-])?$/.test(normalizeGrade(grade));
 const gradeToValue = (grade) => {
     const trimmed = grade.trim().toLowerCase();
-    const match = /^5\.(\d+)([abcd])?$/.exec(trimmed);
+    const match = /^5\.(\d+)([abcd]|[+-])?$/.exec(trimmed);
     if (!match)
         return null;
     const minor = Number(match[1]);
-    const letter = match[2] ?? 'a';
-    const letterValue = { a: 0, b: 1, c: 2, d: 3 }[letter] ?? 0;
-    return minor * 4 + letterValue;
+    const suffix = match[2] ?? 'a';
+    const suffixValue = { '-': 0, a: 1, b: 2, c: 3, d: 4, '+': 5 }[suffix] ?? 1;
+    return minor * 6 + suffixValue;
 };
 const compareGrades = (a, b) => {
     const aValue = gradeToValue(a);
@@ -1105,7 +1115,14 @@ const renderAttempts = () => {
     }
     const attempts = state.data.attempts
         .slice()
-        .sort((a, b) => b.climbDate.localeCompare(a.climbDate))
+        .sort((a, b) => {
+        const aKey = a.createdAt ?? a.updatedAt ?? a.climbDate;
+        const bKey = b.createdAt ?? b.updatedAt ?? b.climbDate;
+        const primary = bKey.localeCompare(aKey);
+        if (primary !== 0)
+            return primary;
+        return b.attemptId.localeCompare(a.attemptId);
+    })
         .slice(0, 12);
     attempts.forEach((attempt) => {
         const route = findRouteById(attempt.routeId);
@@ -1684,7 +1701,7 @@ attemptForm?.addEventListener('submit', (event) => {
         return;
     }
     if (!isValidGrade(grade)) {
-        setMessage('Grade must use Yosemite format, like 5.10a.');
+        setMessage('Grade must use Yosemite format, like 5.10a or 5.10+.');
         return;
     }
     const route = upsertRoute({ gymName, ropeNumber, color, setDate, grade });
@@ -1748,7 +1765,7 @@ const handleRouteSave = () => {
         return;
     }
     if (!isValidGrade(grade)) {
-        setMessage('Grade must use Yosemite format, like 5.9 or 5.10a.');
+        setMessage('Grade must use Yosemite format, like 5.9, 5.10a, or 5.10+.');
         return;
     }
     const newRouteId = toRouteId(gymName, ropeNumber, color, setDate);

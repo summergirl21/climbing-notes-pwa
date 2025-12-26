@@ -541,7 +541,15 @@ const finalizeAuthSession = async (clerk: ClerkInstance, sessionId?: string) => 
 };
 
 const normalizeText = (value: string) => value.trim();
-const normalizeGrade = (value: string) => value.trim().toLowerCase();
+const normalizeGrade = (value: string) => {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('5.')) return trimmed;
+  if (/^\d+([abcd]|[+-])?$/.test(trimmed)) {
+    return `5.${trimmed}`;
+  }
+  return trimmed;
+};
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
@@ -555,16 +563,17 @@ const createId = () => {
 const toRouteId = (gymName: string, ropeNumber: string, color: string, setDate: string) =>
   `${gymName}:${ropeNumber}:${color}:${setDate}`;
 
-const isValidGrade = (grade: string) => /^5\.(\d+)([abcd])?$/.test(normalizeGrade(grade));
+const isValidGrade = (grade: string) =>
+  /^5\.(\d+)([abcd]|[+-])?$/.test(normalizeGrade(grade));
 
 const gradeToValue = (grade: string) => {
   const trimmed = grade.trim().toLowerCase();
-  const match = /^5\.(\d+)([abcd])?$/.exec(trimmed);
+  const match = /^5\.(\d+)([abcd]|[+-])?$/.exec(trimmed);
   if (!match) return null;
   const minor = Number(match[1]);
-  const letter = match[2] ?? 'a';
-  const letterValue = { a: 0, b: 1, c: 2, d: 3 }[letter] ?? 0;
-  return minor * 4 + letterValue;
+  const suffix = match[2] ?? 'a';
+  const suffixValue = { '-': 0, a: 1, b: 2, c: 3, d: 4, '+': 5 }[suffix] ?? 1;
+  return minor * 6 + suffixValue;
 };
 
 const compareGrades = (a: string, b: string) => {
@@ -1347,7 +1356,13 @@ const renderAttempts = () => {
   }
   const attempts = state.data.attempts
     .slice()
-    .sort((a, b) => b.climbDate.localeCompare(a.climbDate))
+    .sort((a, b) => {
+      const aKey = a.createdAt ?? a.updatedAt ?? a.climbDate;
+      const bKey = b.createdAt ?? b.updatedAt ?? b.climbDate;
+      const primary = bKey.localeCompare(aKey);
+      if (primary !== 0) return primary;
+      return b.attemptId.localeCompare(a.attemptId);
+    })
     .slice(0, 12);
 
   attempts.forEach((attempt) => {
@@ -2050,7 +2065,7 @@ attemptForm?.addEventListener('submit', (event) => {
   }
 
   if (!isValidGrade(grade)) {
-    setMessage('Grade must use Yosemite format, like 5.10a.');
+    setMessage('Grade must use Yosemite format, like 5.10a or 5.10+.');
     return;
   }
 
@@ -2126,7 +2141,7 @@ const handleRouteSave = () => {
   }
 
   if (!isValidGrade(grade)) {
-    setMessage('Grade must use Yosemite format, like 5.9 or 5.10a.');
+    setMessage('Grade must use Yosemite format, like 5.9, 5.10a, or 5.10+.');
     return;
   }
 
