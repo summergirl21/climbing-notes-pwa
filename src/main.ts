@@ -4,6 +4,7 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 type CompletionStyle = 'send_clean' | 'send_rested' | 'attempt';
+type ClimbStyle = 'top_rope' | 'lead';
 
 type Gym = {
   name: string;
@@ -27,6 +28,7 @@ type Attempt = {
   routeId: string;
   climbDate: string;
   attemptIndex: number;
+  climbStyle: ClimbStyle;
   completionStyle: CompletionStyle;
   notes: string;
   createdAt: string;
@@ -56,7 +58,10 @@ const normalizeData = (data: DataStore): DataStore => ({
   version: data.version ?? 1,
   gyms: data.gyms ?? [],
   routes: data.routes ?? [],
-  attempts: data.attempts ?? [],
+  attempts: (data.attempts ?? []).map((attempt) => ({
+    ...attempt,
+    climbStyle: attempt.climbStyle ?? 'top_rope',
+  })),
 });
 
 const loadLegacyData = (): DataStore | null => {
@@ -148,6 +153,7 @@ const routeColorInput = document.getElementById('routeColor') as HTMLInputElemen
 const setDateInput = document.getElementById('setDate') as HTMLInputElement | null;
 const routeGradeInput = document.getElementById('routeGrade') as HTMLInputElement | null;
 const climbDateInput = document.getElementById('climbDate') as HTMLInputElement | null;
+const climbStyleSelect = document.getElementById('climbStyle') as HTMLSelectElement | null;
 const completionStyleSelect = document.getElementById('completionStyle') as HTMLSelectElement | null;
 const attemptNotesInput = document.getElementById('attemptNotes') as HTMLTextAreaElement | null;
 const attemptReset = document.getElementById('attemptReset') as HTMLButtonElement | null;
@@ -506,8 +512,17 @@ const upsertRoute = (payload: {
 };
 
 const resetAttemptForm = () => {
-  if (!attemptForm || !climbDateInput || !completionStyleSelect || !attemptNotesInput) return;
+  if (
+    !attemptForm ||
+    !climbDateInput ||
+    !climbStyleSelect ||
+    !completionStyleSelect ||
+    !attemptNotesInput
+  ) {
+    return;
+  }
   attemptNotesInput.value = '';
+  climbStyleSelect.value = 'top_rope';
   completionStyleSelect.value = 'send_clean';
   climbDateInput.value = climbDateInput.value || todayISO();
   state.editingAttemptId = null;
@@ -734,6 +749,7 @@ const renderAttempts = () => {
         : attempt.completionStyle === 'send_rested'
           ? 'Send (rested)'
           : 'Attempt only';
+    const climbStyleLabel = attempt.climbStyle === 'lead' ? 'Lead' : 'Top rope';
     const card = document.createElement('details');
     card.className = 'list-item compact-card';
 
@@ -749,7 +765,7 @@ const renderAttempts = () => {
 
     const meta = document.createElement('div');
     meta.className = 'compact-meta';
-    meta.textContent = `${attempt.climbDate} · ${route.grade} · Attempt ${attempt.attemptIndex} · ${completionLabel}`;
+    meta.textContent = `${attempt.climbDate} · ${route.grade} · ${climbStyleLabel} · Attempt ${attempt.attemptIndex} · ${completionLabel}`;
 
     const chevron = document.createElement('span');
     chevron.className = 'compact-chevron';
@@ -781,6 +797,7 @@ const renderAttempts = () => {
         !setDateInput ||
         !routeGradeInput ||
         !climbDateInput ||
+        !climbStyleSelect ||
         !completionStyleSelect ||
         !attemptNotesInput
       ) {
@@ -793,6 +810,7 @@ const renderAttempts = () => {
       setDateInput.value = route.setDate;
       routeGradeInput.value = route.grade;
       climbDateInput.value = attempt.climbDate;
+      climbStyleSelect.value = attempt.climbStyle ?? 'top_rope';
       completionStyleSelect.value = attempt.completionStyle;
       attemptNotesInput.value = attempt.notes;
       state.editingAttemptId = attempt.attemptId;
@@ -999,9 +1017,10 @@ const renderRouteSearchResult = (routes: Route[]) => {
               : attempt.completionStyle === 'send_rested'
                 ? 'Send (rested)'
                 : 'Attempt only';
+          const climbStyleLabel = attempt.climbStyle === 'lead' ? 'Lead' : 'Top rope';
           const line = document.createElement('div');
           line.className = 'meta';
-          line.textContent = `${attempt.climbDate} · Attempt ${attempt.attemptIndex} · ${completionLabel}`;
+          line.textContent = `${attempt.climbDate} · ${climbStyleLabel} · Attempt ${attempt.attemptIndex} · ${completionLabel}`;
 
           const notes = document.createElement('div');
           notes.className = 'meta';
@@ -1068,6 +1087,7 @@ attemptForm?.addEventListener('submit', (event) => {
     !setDateInput ||
     !routeGradeInput ||
     !climbDateInput ||
+    !climbStyleSelect ||
     !completionStyleSelect ||
     !attemptNotesInput
   ) {
@@ -1080,6 +1100,7 @@ attemptForm?.addEventListener('submit', (event) => {
   const setDate = setDateInput.value;
   const grade = normalizeGrade(routeGradeInput.value);
   const climbDate = climbDateInput.value || todayISO();
+  const climbStyle = climbStyleSelect.value as ClimbStyle;
 
   if (!gymName || !ropeNumber || !color || !setDate || !grade || !climbDate) {
     setMessage('Fill in all route and attempt fields.');
@@ -1102,6 +1123,7 @@ attemptForm?.addEventListener('submit', (event) => {
       const originalDate = attempt.climbDate;
       attempt.routeId = route.routeId;
       attempt.climbDate = climbDate;
+      attempt.climbStyle = climbStyle;
       attempt.completionStyle = completionStyleSelect.value as CompletionStyle;
       attempt.notes = normalizeText(attemptNotesInput.value);
       attempt.updatedAt = new Date().toISOString();
@@ -1131,6 +1153,7 @@ attemptForm?.addEventListener('submit', (event) => {
     routeId: route.routeId,
     climbDate,
     attemptIndex,
+    climbStyle,
     completionStyle: completionStyleSelect.value as CompletionStyle,
     notes: normalizeText(attemptNotesInput.value),
     createdAt: new Date().toISOString(),

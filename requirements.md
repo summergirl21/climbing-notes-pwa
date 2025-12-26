@@ -64,9 +64,9 @@
 
 # TODOs:
 [] Icon for app
-[] Combine gyms tab with one of the other pages, maybe settings?
-[] Make the top header smaller, remove the offline indicator?
-[] Add a version number or build date so you can see which version is loaded, in settings
+[X] Combine gyms tab with one of the other pages, maybe settings?
+[X] Make the top header smaller, remove the offline indicator?
+[X] Add a version number or build date so you can see which version is loaded, in settings
 [] Add import and export data feature
 [] Work more on making data persistent
 [] Add option for lead vs top rope
@@ -79,6 +79,6 @@
 [] Make it work with ratings at Edge works, like 5.10+/-
 [] Why did show install button on android and not iOS?
 [] Proper backend with account and syncing etc
-[] The attempts list on desktop didn't seem to size the cards nicely
+[X] The attempts list on desktop didn't seem to size the cards nicely
 
 
