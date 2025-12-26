@@ -37,8 +37,7 @@ const fileEnv = {
 
 const readEnv = (key) => process.env[key] || fileEnv[key];
 
-const convexUrl = readEnv("VITE_CONVEX_URL") || readEnv("CONVEX_URL");
-const clerkKey = readEnv("VITE_CLERK_PUBLISHABLE_KEY") || readEnv("CLERK_PUBLISHABLE_KEY");
+const convexUrl = readEnv("CONVEX_URL");
 
 let output = html;
 
@@ -46,13 +45,6 @@ if (convexUrl) {
   output = output.replace(
     /(<meta name="convex-url" content=")([^"]*)(")/,
     `$1${convexUrl}$3`
-  );
-}
-
-if (clerkKey) {
-  output = output.replace(
-    /(data-clerk-publishable-key=")([^"]*)(")/,
-    `$1${clerkKey}$3`
   );
 }
 
