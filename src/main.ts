@@ -547,18 +547,30 @@ const renderGyms = () => {
         return route?.gymName === gym.name;
       }).length;
 
-      const card = document.createElement('div');
-      card.className = 'list-item';
+      const card = document.createElement('details');
+      card.className = 'list-item compact-card';
 
-      const title = document.createElement('strong');
+      const summary = document.createElement('summary');
+      summary.className = 'compact-summary';
+
+      const textWrap = document.createElement('div');
+      textWrap.className = 'compact-text';
+
+      const title = document.createElement('div');
+      title.className = 'compact-title';
       title.textContent = gym.name;
 
       const meta = document.createElement('div');
-      meta.className = 'meta';
+      meta.className = 'compact-meta';
       meta.textContent = `${routesCount} routes, ${attemptsCount} attempts`;
 
-      const actions = document.createElement('div');
-      actions.className = 'actions';
+      const chevron = document.createElement('span');
+      chevron.className = 'compact-chevron';
+      chevron.textContent = '›';
+      chevron.setAttribute('aria-hidden', 'true');
+
+      textWrap.append(title, meta);
+      summary.append(textWrap, chevron);
 
       const editButton = document.createElement('button');
       editButton.type = 'button';
@@ -592,8 +604,15 @@ const renderGyms = () => {
         setMessage(`Gym ${gym.name} deleted.`);
       });
 
+      const actions = document.createElement('div');
+      actions.className = 'actions';
       actions.append(editButton, deleteButton);
-      card.append(title, meta, actions);
+
+      const details = document.createElement('div');
+      details.className = 'compact-details';
+      details.append(actions);
+
+      card.append(summary, details);
       gymList.appendChild(card);
     });
 };
