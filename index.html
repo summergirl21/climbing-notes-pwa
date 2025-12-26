@@ -94,7 +94,6 @@
                   radial-gradient(circle at 90% 10%, var(--bg-accent-2), transparent 45%),
                   linear-gradient(160deg, var(--bg) 0%, var(--bg-strong) 45%, var(--bg) 100%);
       padding: 24px;
-      padding-bottom: 120px;
     }
 
     .app {
@@ -218,13 +217,7 @@
       background: var(--panel);
       border: 1px solid var(--line);
       box-shadow: var(--shadow);
-      position: fixed;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: min(980px, calc(100% - 32px));
       justify-content: space-between;
-      z-index: 20;
     }
 
     .tab {
@@ -623,6 +616,7 @@
       }
 
       .tabs {
+        position: fixed;
         bottom: 16px;
         left: 16px;
         right: 16px;
@@ -630,6 +624,7 @@
         transform: none;
         border-radius: 22px;
         padding: 8px 10px;
+        z-index: 20;
       }
 
       .tab {
