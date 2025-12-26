@@ -29,8 +29,11 @@ Static PWA authored in TypeScript. Build emits to `docs/` (the folder you’ll p
 ### App wiring
 - The Clerk publishable key is set in `index.html` via the Clerk script tag.
 - Convex HTTP calls use the deployment URL from `<meta name="convex-url">` in `index.html`.
-  - For the shared project, keep it pointed to `https://dazzling-roadrunner-17.convex.cloud`.
+  - Defaults target prod Convex: `https://precise-curlew-539.convex.cloud`.
   - HTTP actions are served from `https://<deployment>.convex.site` (the app converts this automatically).
+- Build-time overrides (env or `.env.local`/`.env`):
+  - `VITE_CLERK_PUBLISHABLE_KEY=... VITE_CONVEX_URL=... npm run build`
+  - Or create `.env.local` with `VITE_CLERK_PUBLISHABLE_KEY` and `VITE_CONVEX_URL`.
 
 ### Verify auth
 1. Build + serve: `npm run build` then `python3 -m http.server 8000 -d docs`.
