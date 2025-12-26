@@ -656,6 +656,128 @@
       text-align: center;
     }
 
+    .session-chart {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .session-chart-row {
+      display: grid;
+      grid-template-columns: 70px 1fr auto;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .session-chart-label {
+      font-weight: 700;
+      color: var(--ink);
+    }
+
+    .session-chart-track {
+      position: relative;
+      height: 10px;
+      border-radius: 999px;
+      background: var(--line);
+      overflow: hidden;
+    }
+
+    .session-chart-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent-cool));
+    }
+
+    .session-chart-marker {
+      position: absolute;
+      top: -5px;
+      bottom: -5px;
+      width: 2px;
+      border-radius: 999px;
+      background: var(--accent-dark);
+      opacity: 0.4;
+    }
+
+    .session-chart-value {
+      font-weight: 700;
+      color: var(--ink);
+      font-family: var(--font-head);
+    }
+
+    .session-list {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .session-summary .compact-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .session-metrics {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    }
+
+    .session-metric {
+      background: var(--panel-strong);
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 2px;
+    }
+
+    .session-metric-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .session-metric-value {
+      font-size: 16px;
+      font-family: var(--font-head);
+      color: var(--ink);
+    }
+
+    .session-attempt-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .session-attempt-row {
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      display: grid;
+      gap: 4px;
+    }
+
+    .session-attempt-title {
+      font-weight: 700;
+      font-size: 13px;
+    }
+
+    .session-attempt-meta {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .session-attempt-notes {
+      font-size: 12px;
+      color: var(--accent-dark);
+    }
+
     .empty {
       font-size: 13px;
       color: var(--muted);
@@ -857,36 +979,32 @@
       <section class="tab-panel" data-tab-panel="stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
         <div class="grid">
           <section class="panel">
-            <h2>Session stats</h2>
-            <p>Stats are calculated from your logged attempts.</p>
+            <h2>Recent sessions</h2>
+            <p>Review your last 5 sessions and see trends at a glance.</p>
             <form id="sessionForm">
-              <div class="two-col">
-                <label>
-                  Session date
-                  <input id="sessionDate" type="date" required>
-                </label>
-                <label>
-                  Gym
-                  <select id="sessionGym">
-                    <option value="">All gyms</option>
-                  </select>
-                </label>
-              </div>
+              <label>
+                Gym
+                <select id="sessionGym">
+                  <option value="">All gyms</option>
+                </select>
+              </label>
             </form>
             <div class="stat-grid">
               <div class="stat">
                 <div class="stat-value" id="statTotal">0</div>
-                <div class="stat-label">Total attempts</div>
+                <div class="stat-label">Attempts (last session)</div>
               </div>
               <div class="stat">
                 <div class="stat-value" id="statMax">-</div>
-                <div class="stat-label">Max grade</div>
+                <div class="stat-label">Max grade (last session)</div>
               </div>
             </div>
             <div>
-              <strong>Grade distribution</strong>
-              <div id="gradeDistribution" class="grade-chart"></div>
+              <strong>Attempts per session</strong>
+              <div id="recentSessionsChart" class="session-chart"></div>
+              <div class="meta" id="recentSessionsAverage">Average: -</div>
             </div>
+            <div id="recentSessionsList" class="session-list"></div>
           </section>
         </div>
       </section>

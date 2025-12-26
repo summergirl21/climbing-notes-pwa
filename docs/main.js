@@ -111,11 +111,12 @@ const attemptNotesInput = document.getElementById('attemptNotes');
 const attemptReset = document.getElementById('attemptReset');
 const attemptList = document.getElementById('attemptList');
 const sessionForm = document.getElementById('sessionForm');
-const sessionDateInput = document.getElementById('sessionDate');
 const sessionGym = document.getElementById('sessionGym');
 const statTotal = document.getElementById('statTotal');
 const statMax = document.getElementById('statMax');
-const gradeDistribution = document.getElementById('gradeDistribution');
+const recentSessionsChart = document.getElementById('recentSessionsChart');
+const recentSessionsAverage = document.getElementById('recentSessionsAverage');
+const recentSessionsList = document.getElementById('recentSessionsList');
 const routeHubForm = document.getElementById('routeHubForm');
 const routeHubGym = document.getElementById('routeHubGym');
 const routeHubRope = document.getElementById('routeHubRope');
@@ -295,7 +296,6 @@ const state = {
     editingRouteId: '',
     editingAttemptId: '',
 };
-let sessionDatePinned = false;
 let messageTimeout = null;
 const setMessage = (text) => {
     if (!messageBar)
@@ -319,15 +319,6 @@ const setImportStatus = (text) => {
 const normalizeText = (value) => value.trim();
 const normalizeGrade = (value) => value.trim().toLowerCase();
 const todayISO = () => new Date().toISOString().slice(0, 10);
-const mostRecentSessionDate = () => {
-    if (state.data.attempts.length === 0)
-        return todayISO();
-    return state.data.attempts.reduce((latest, attempt) => {
-        if (!latest || attempt.climbDate > latest)
-            return attempt.climbDate;
-        return latest;
-    }, '');
-};
 const createId = () => {
     if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
         return crypto.randomUUID();
@@ -353,6 +344,18 @@ const compareGrades = (a, b) => {
         return 0;
     return aValue - bValue;
 };
+const RECENT_SESSION_COUNT = 5;
+const formatSessionDate = (value, format) => {
+    const parsed = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(parsed.getTime()))
+        return value;
+    if (format === 'short') {
+        return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    }
+    return parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+};
+const formatCompletionStyle = (style) => style === 'send_clean' ? 'Send (no rest)' : style === 'send_rested' ? 'Send (rested)' : 'Attempt';
+const formatClimbStyle = (style) => (style === 'lead' ? 'Lead' : 'Top rope');
 const CSV_COLUMNS = [
     'record_type',
     'gym_name',
@@ -1104,44 +1107,80 @@ const renderAttempts = () => {
         attemptList.appendChild(card);
     });
 };
-const setSessionDefault = () => {
-    if (!sessionDateInput || sessionDatePinned)
-        return;
-    sessionDateInput.value = mostRecentSessionDate();
-};
-const renderStats = () => {
-    if (!sessionDateInput || !statTotal || !statMax || !gradeDistribution)
-        return;
-    const sessionDate = sessionDateInput.value || todayISO();
-    const gymFilter = sessionGym?.value ?? '';
-    const attempts = state.data.attempts.filter((attempt) => {
-        if (attempt.climbDate !== sessionDate)
-            return false;
-        const route = findRouteById(attempt.routeId);
-        if (!route)
-            return false;
-        if (gymFilter && route.gymName !== gymFilter)
-            return false;
-        return true;
-    });
-    statTotal.textContent = String(attempts.length);
-    const gradeCounts = new Map();
-    let maxGrade = null;
-    attempts.forEach((attempt) => {
+const buildSessionSummaries = (gymFilter) => {
+    const grouped = new Map();
+    state.data.attempts.forEach((attempt) => {
         const route = findRouteById(attempt.routeId);
         if (!route)
             return;
-        gradeCounts.set(route.grade, (gradeCounts.get(route.grade) ?? 0) + 1);
-        if (!maxGrade || compareGrades(route.grade, maxGrade) > 0) {
-            maxGrade = route.grade;
+        if (gymFilter && route.gymName !== gymFilter)
+            return;
+        const list = grouped.get(attempt.climbDate);
+        const entry = { attempt, route };
+        if (list) {
+            list.push(entry);
+        }
+        else {
+            grouped.set(attempt.climbDate, [entry]);
         }
     });
-    statMax.textContent = maxGrade ?? '-';
-    gradeDistribution.innerHTML = '';
-    const chartStyle = gradeChartStyleSelect?.value ?? loadChartStyle();
-    gradeDistribution.className = `grade-chart${chartStyle === 'histogram' ? ' histogram' : ''}`;
+    return Array.from(grouped.entries()).map(([date, entries]) => {
+        const gyms = Array.from(new Set(entries.map((entry) => entry.route.gymName))).sort();
+        const gradeCounts = new Map();
+        let maxGrade = null;
+        let sendCount = 0;
+        let topRopeCount = 0;
+        let leadCount = 0;
+        let cleanCount = 0;
+        let restedCount = 0;
+        let attemptOnlyCount = 0;
+        entries.forEach(({ attempt, route }) => {
+            gradeCounts.set(route.grade, (gradeCounts.get(route.grade) ?? 0) + 1);
+            if (!maxGrade || compareGrades(route.grade, maxGrade) > 0) {
+                maxGrade = route.grade;
+            }
+            if (attempt.climbStyle === 'lead') {
+                leadCount += 1;
+            }
+            else {
+                topRopeCount += 1;
+            }
+            if (attempt.completionStyle === 'send_clean') {
+                cleanCount += 1;
+                sendCount += 1;
+            }
+            else if (attempt.completionStyle === 'send_rested') {
+                restedCount += 1;
+                sendCount += 1;
+            }
+            else {
+                attemptOnlyCount += 1;
+            }
+        });
+        return {
+            date,
+            attempts: entries,
+            gymNames: gyms,
+            totalAttempts: entries.length,
+            sendCount,
+            maxGrade,
+            gradeCounts,
+            topRopeCount,
+            leadCount,
+            cleanCount,
+            restedCount,
+            attemptOnlyCount,
+        };
+    });
+};
+const renderGradeChart = (container, gradeCounts, chartStyle, emptyText) => {
+    container.innerHTML = '';
+    container.className = 'grade-chart';
+    if (chartStyle === 'histogram') {
+        container.classList.add('histogram');
+    }
     if (gradeCounts.size === 0) {
-        gradeDistribution.innerHTML = '<div class="empty">No attempts for this session.</div>';
+        container.innerHTML = `<div class="empty">${emptyText}</div>`;
         return;
     }
     const maxCount = Math.max(...gradeCounts.values());
@@ -1168,7 +1207,7 @@ const renderStats = () => {
             column.append(countLabel, track, gradeLabel);
             grid.appendChild(column);
         });
-        gradeDistribution.appendChild(grid);
+        container.appendChild(grid);
         return;
     }
     entries.forEach(([grade, count]) => {
@@ -1188,8 +1227,181 @@ const renderStats = () => {
         fill.style.width = `${Math.round((count / maxCount) * 100)}%`;
         track.appendChild(fill);
         bar.append(header, track);
-        gradeDistribution.appendChild(bar);
+        container.appendChild(bar);
     });
+};
+const renderRecentSessionsChart = (sessions) => {
+    if (!recentSessionsChart)
+        return;
+    recentSessionsChart.innerHTML = '';
+    if (sessions.length === 0) {
+        recentSessionsChart.innerHTML = '<div class="empty">No sessions logged yet.</div>';
+        if (recentSessionsAverage)
+            recentSessionsAverage.textContent = 'Average: -';
+        return;
+    }
+    const maxCount = Math.max(...sessions.map((session) => session.totalAttempts));
+    const totalAttempts = sessions.reduce((sum, session) => sum + session.totalAttempts, 0);
+    const average = totalAttempts / sessions.length;
+    const averagePercent = maxCount > 0 ? Math.min(100, Math.round((average / maxCount) * 100)) : 0;
+    sessions.forEach((session) => {
+        const row = document.createElement('div');
+        row.className = 'session-chart-row';
+        const label = document.createElement('div');
+        label.className = 'session-chart-label';
+        label.textContent = formatSessionDate(session.date, 'short');
+        const track = document.createElement('div');
+        track.className = 'session-chart-track';
+        const fill = document.createElement('div');
+        fill.className = 'session-chart-fill';
+        if (maxCount > 0) {
+            fill.style.width = `${Math.round((session.totalAttempts / maxCount) * 100)}%`;
+        }
+        const marker = document.createElement('div');
+        marker.className = 'session-chart-marker';
+        marker.style.left = `${averagePercent}%`;
+        track.append(fill, marker);
+        const value = document.createElement('div');
+        value.className = 'session-chart-value';
+        value.textContent = String(session.totalAttempts);
+        row.append(label, track, value);
+        recentSessionsChart.appendChild(row);
+    });
+    if (recentSessionsAverage) {
+        const averageLabel = Number.isInteger(average) ? String(average) : average.toFixed(1);
+        recentSessionsAverage.textContent = `Average: ${averageLabel} attempts`;
+    }
+};
+const renderRecentSessionsList = (sessions, chartStyle) => {
+    if (!recentSessionsList)
+        return;
+    recentSessionsList.innerHTML = '';
+    if (sessions.length === 0) {
+        recentSessionsList.innerHTML = '<div class="empty">No recent sessions yet.</div>';
+        return;
+    }
+    sessions.forEach((session, index) => {
+        const card = document.createElement('details');
+        card.className = 'list-item compact-card session-card';
+        if (index === 0)
+            card.open = true;
+        const summary = document.createElement('summary');
+        summary.className = 'compact-summary session-summary';
+        const textWrap = document.createElement('div');
+        textWrap.className = 'compact-text';
+        const title = document.createElement('div');
+        title.className = 'compact-title';
+        title.textContent = formatSessionDate(session.date, 'long');
+        const meta = document.createElement('div');
+        meta.className = 'compact-meta';
+        const gymLabel = document.createElement('span');
+        gymLabel.textContent =
+            session.gymNames.length === 1 ? session.gymNames[0] : `${session.gymNames.length} gyms`;
+        const attemptsLabel = document.createElement('span');
+        attemptsLabel.textContent = `${session.totalAttempts} attempts`;
+        const maxGradeLabel = document.createElement('span');
+        maxGradeLabel.textContent = `Max ${session.maxGrade ?? '-'}`;
+        const sendRate = session.totalAttempts
+            ? Math.round((session.sendCount / session.totalAttempts) * 100)
+            : 0;
+        const sendLabel = document.createElement('span');
+        sendLabel.textContent = `${sendRate}% send`;
+        meta.append(gymLabel, attemptsLabel, maxGradeLabel, sendLabel);
+        const chevron = document.createElement('span');
+        chevron.className = 'compact-chevron';
+        chevron.textContent = '›';
+        chevron.setAttribute('aria-hidden', 'true');
+        textWrap.append(title, meta);
+        summary.append(textWrap, chevron);
+        const details = document.createElement('div');
+        details.className = 'compact-details';
+        const metrics = document.createElement('div');
+        metrics.className = 'session-metrics';
+        const metricItems = [
+            ['Top rope', session.topRopeCount],
+            ['Lead', session.leadCount],
+            ['Clean sends', session.cleanCount],
+            ['Rested sends', session.restedCount],
+            ['Attempts', session.attemptOnlyCount],
+        ];
+        metricItems.forEach(([labelText, value]) => {
+            const metric = document.createElement('div');
+            metric.className = 'session-metric';
+            const label = document.createElement('div');
+            label.className = 'session-metric-label';
+            label.textContent = labelText;
+            const valueEl = document.createElement('div');
+            valueEl.className = 'session-metric-value';
+            valueEl.textContent = String(value);
+            metric.append(label, valueEl);
+            metrics.appendChild(metric);
+        });
+        const gradeTitle = document.createElement('strong');
+        gradeTitle.textContent = 'Grade distribution';
+        const gradeChart = document.createElement('div');
+        renderGradeChart(gradeChart, session.gradeCounts, chartStyle, 'No grades logged.');
+        const attemptsTitle = document.createElement('strong');
+        attemptsTitle.textContent = 'Attempts';
+        const attemptList = document.createElement('div');
+        attemptList.className = 'session-attempt-list';
+        const sortedAttempts = session.attempts.slice().sort((a, b) => {
+            if (a.route.gymName !== b.route.gymName) {
+                return a.route.gymName.localeCompare(b.route.gymName);
+            }
+            if (a.route.ropeNumber !== b.route.ropeNumber) {
+                return a.route.ropeNumber.localeCompare(b.route.ropeNumber, undefined, { numeric: true });
+            }
+            if (a.route.color !== b.route.color) {
+                return a.route.color.localeCompare(b.route.color);
+            }
+            if (a.attempt.attemptIndex !== b.attempt.attemptIndex) {
+                return a.attempt.attemptIndex - b.attempt.attemptIndex;
+            }
+            return a.attempt.attemptId.localeCompare(b.attempt.attemptId);
+        });
+        if (sortedAttempts.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'meta';
+            empty.textContent = 'No attempts logged yet.';
+            attemptList.appendChild(empty);
+        }
+        else {
+            sortedAttempts.forEach(({ attempt, route }) => {
+                const row = document.createElement('div');
+                row.className = 'session-attempt-row';
+                const titleLine = document.createElement('div');
+                titleLine.className = 'session-attempt-title';
+                titleLine.textContent = `${route.gymName} · Rope ${route.ropeNumber} ${route.color} · ${route.grade}`;
+                const metaLine = document.createElement('div');
+                metaLine.className = 'session-attempt-meta';
+                metaLine.textContent = `${formatClimbStyle(attempt.climbStyle)} · Attempt ${attempt.attemptIndex} · ${formatCompletionStyle(attempt.completionStyle)}`;
+                row.append(titleLine, metaLine);
+                if (attempt.notes) {
+                    const notes = document.createElement('div');
+                    notes.className = 'session-attempt-notes';
+                    notes.textContent = `Notes: ${attempt.notes}`;
+                    row.appendChild(notes);
+                }
+                attemptList.appendChild(row);
+            });
+        }
+        details.append(metrics, gradeTitle, gradeChart, attemptsTitle, attemptList);
+        card.append(summary, details);
+        recentSessionsList.appendChild(card);
+    });
+};
+const renderStats = () => {
+    if (!statTotal || !statMax || !recentSessionsChart || !recentSessionsList)
+        return;
+    const gymFilter = sessionGym?.value ?? '';
+    const sessions = buildSessionSummaries(gymFilter).sort((a, b) => b.date.localeCompare(a.date));
+    const recentSessions = sessions.slice(0, RECENT_SESSION_COUNT);
+    const mostRecent = recentSessions[0];
+    statTotal.textContent = mostRecent ? String(mostRecent.totalAttempts) : '0';
+    statMax.textContent = mostRecent?.maxGrade ?? '-';
+    const chartStyle = gradeChartStyleSelect?.value ?? loadChartStyle();
+    renderRecentSessionsChart(recentSessions);
+    renderRecentSessionsList(recentSessions, chartStyle);
 };
 const renderRouteSearchResult = (routes) => {
     if (!routeSearchResult)
@@ -1275,7 +1487,6 @@ const renderAll = () => {
     renderGyms();
     renderRoutes();
     renderAttempts();
-    setSessionDefault();
     renderStats();
     const hasGyms = gymNames.length > 0;
     setFormDisabled(attemptForm, !hasGyms);
@@ -1605,21 +1816,14 @@ gymForm?.addEventListener('submit', (event) => {
 gymClear?.addEventListener('click', () => {
     resetGymForm();
 });
-sessionDateInput?.addEventListener('change', () => {
-    sessionDatePinned = true;
-    renderStats();
-});
 sessionGym?.addEventListener('change', () => {
     renderStats();
 });
 if (climbDateInput)
     climbDateInput.value = todayISO();
-if (sessionDateInput)
-    sessionDateInput.value = todayISO();
 const initApp = async () => {
     await requestPersistentStorage();
     state.data = await readData();
-    sessionDatePinned = false;
     renderAll();
 };
 void initApp();

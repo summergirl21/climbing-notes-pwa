@@ -122,7 +122,7 @@
 
 
 # TODOs:
-- [ ] Icon for app
+- [x] Icon for app
 - [x] Combine gyms tab with one of the other pages, maybe settings?
 - [x] Make the top header smaller, remove the offline indicator?
 - [x] Add a version number or build date so you can see which version is loaded, in settings
