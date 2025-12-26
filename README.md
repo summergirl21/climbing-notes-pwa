@@ -40,7 +40,7 @@ Static PWA authored in TypeScript. Build emits to `docs/` (the folder you’ll p
 - After the first load, refresh while offline to confirm the service worker cache.
 
 ## Deploy Convex (prod)
-- Run the manual workflow in `.github/workflows/convex-deploy.yml`.
+- Deploys automatically on pushes to `main` (see `.github/workflows/convex-deploy.yml`).
 
 ## Customize
 - Edit `index.html` for layout, and change logic in `src/main.ts`.
