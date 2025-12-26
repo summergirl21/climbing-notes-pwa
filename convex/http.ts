@@ -37,7 +37,7 @@ http.route({
     }
     return new Response(
       JSON.stringify({
-        message: "hello",
+        message: "hello 123",
         subject: identity.subject,
         email: identity.email,
       }),

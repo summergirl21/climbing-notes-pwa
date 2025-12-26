@@ -129,9 +129,9 @@
 - [x] Add import and export data feature
 - [ ] Work more on making data persistent
 - [x] Add option for lead vs top rope
-- [ ] show multiple recent session on the stats page
-- [ ] show stats for type of send, with/without rest, didn't finish
-- [ ] stats show number of attempts in x recent sessions
+- [x] show multiple recent session on the stats page
+- [x] show stats for type of send, with/without rest, didn't finish
+- [x] stats show number of attempts in x recent sessions
 - [ ] Set date and climb date in the attempts tab doesn't seem to be sized correctly, set date also in routes doesn't seem to be sized correctly
 - [ ] Make sure you can list all previous attempts
 - [ ] Picture recognition of the route
