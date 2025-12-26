@@ -37,7 +37,7 @@ http.route({
     }
     return new Response(
       JSON.stringify({
-        message: "hello 123",
+        message: "hello from convex",
         subject: identity.subject,
         email: identity.email,
       }),

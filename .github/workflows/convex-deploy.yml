@@ -1,7 +1,13 @@
-name: Deploy Convex (Manual)
+name: Deploy Convex
 
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
+
+concurrency:
+  group: "convex-deploy"
+  cancel-in-progress: true
 
 jobs:
   deploy:
