@@ -901,6 +901,14 @@
         </span>
         Attempts
       </button>
+      <button class="tab" id="tab-routes" data-tab="routes" role="tab" aria-selected="false">
+        <span class="tab-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <path d="M6 4h12l-2 6 2 6H6l2-6-2-6z"></path>
+          </svg>
+        </span>
+        Routes
+      </button>
       <button class="tab" id="tab-stats" data-tab="stats" role="tab" aria-selected="false">
         <span class="tab-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24">
@@ -911,14 +919,6 @@
           </svg>
         </span>
         Stats
-      </button>
-      <button class="tab" id="tab-routes" data-tab="routes" role="tab" aria-selected="false">
-        <span class="tab-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24">
-            <path d="M6 4h12l-2 6 2 6H6l2-6-2-6z"></path>
-          </svg>
-        </span>
-        Routes
       </button>
       <button class="tab" id="tab-settings" data-tab="settings" role="tab" aria-selected="false">
         <span class="tab-icon" aria-hidden="true">
@@ -1010,39 +1010,6 @@
         </div>
       </section>
 
-      <section class="tab-panel" data-tab-panel="stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
-        <div class="grid">
-          <section class="panel">
-            <h2>Recent sessions</h2>
-            <p>Review your last 5 sessions and see trends at a glance.</p>
-            <form id="sessionForm">
-              <label>
-                Gym
-                <select id="sessionGym">
-                  <option value="">All gyms</option>
-                </select>
-              </label>
-            </form>
-            <div class="stat-grid">
-              <div class="stat">
-                <div class="stat-value" id="statTotal">0</div>
-                <div class="stat-label">Attempts (last session)</div>
-              </div>
-              <div class="stat">
-                <div class="stat-value" id="statMax">-</div>
-                <div class="stat-label">Max grade (last session)</div>
-              </div>
-            </div>
-            <div>
-              <strong>Attempts per session</strong>
-              <div id="recentSessionsChart" class="session-chart"></div>
-              <div class="meta" id="recentSessionsAverage">Average: -</div>
-            </div>
-            <div id="recentSessionsList" class="session-list"></div>
-          </section>
-        </div>
-      </section>
-
       <section class="tab-panel" data-tab-panel="routes" role="tabpanel" aria-labelledby="tab-routes" hidden>
         <div class="grid">
           <section class="panel">
@@ -1084,6 +1051,39 @@
             <h2>All routes</h2>
             <p>Browse existing routes and jump into editing.</p>
             <div id="routeList" class="list"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-tab-panel="stats" role="tabpanel" aria-labelledby="tab-stats" hidden>
+        <div class="grid">
+          <section class="panel">
+            <h2>Recent sessions</h2>
+            <p>Review your last 5 sessions and see trends at a glance.</p>
+            <form id="sessionForm">
+              <label>
+                Gym
+                <select id="sessionGym">
+                  <option value="">All gyms</option>
+                </select>
+              </label>
+            </form>
+            <div class="stat-grid">
+              <div class="stat">
+                <div class="stat-value" id="statTotal">0</div>
+                <div class="stat-label">Attempts (last session)</div>
+              </div>
+              <div class="stat">
+                <div class="stat-value" id="statMax">-</div>
+                <div class="stat-label">Max grade (last session)</div>
+              </div>
+            </div>
+            <div>
+              <strong>Attempts per session</strong>
+              <div id="recentSessionsChart" class="session-chart"></div>
+              <div class="meta" id="recentSessionsAverage">Average: -</div>
+            </div>
+            <div id="recentSessionsList" class="session-list"></div>
           </section>
         </div>
       </section>
