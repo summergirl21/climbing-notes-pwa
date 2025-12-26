@@ -3,6 +3,74 @@ type BeforeInstallPromptEvent = Event & {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 };
 
+export {};
+
+type ClerkSession = {
+  getToken: (options: { template: string }) => Promise<string | null>;
+};
+
+type ClerkSignInAttempt = {
+  status: string;
+  createdSessionId?: string;
+};
+
+type ClerkSignUpAttempt = {
+  status: string;
+  createdSessionId?: string;
+};
+
+type ClerkEmailFactor = {
+  strategy: 'email_code' | string;
+  emailAddressId?: string;
+};
+
+type ClerkSignIn = {
+  supportedFirstFactors?: ClerkEmailFactor[];
+  prepareFirstFactor: (options: {
+    strategy: 'email_link' | 'email_code';
+    redirectUrl: string;
+    emailAddressId?: string;
+  }) => Promise<void>;
+  attemptFirstFactor: (options: { strategy: 'email_code'; code: string }) => Promise<ClerkSignInAttempt>;
+};
+
+type ClerkSignUp = {
+  prepareEmailAddressVerification: (options: {
+    strategy: 'email_link' | 'email_code';
+    redirectUrl: string;
+  }) => Promise<void>;
+  attemptEmailAddressVerification: (options: { code: string }) => Promise<ClerkSignUpAttempt>;
+};
+
+type ClerkClient = {
+  signIn: {
+    create: (options: { identifier: string }) => Promise<ClerkSignIn>;
+  };
+  signUp: {
+    create: (options: { emailAddress: string }) => Promise<ClerkSignUp>;
+  };
+};
+
+type ClerkInstance = {
+  load: () => Promise<void>;
+  session: ClerkSession | null;
+  user: { primaryEmailAddress?: { emailAddress: string } } | null;
+  client?: ClerkClient;
+  setActive?: (options: { session: string }) => Promise<void>;
+  addListener?: (listener: (state: { session: ClerkSession | null }) => void) => void;
+  signIn: {
+    create: (options: { identifier: string }) => Promise<ClerkSignIn>;
+  };
+  handleEmailLinkVerification: (options?: { redirectUrlComplete?: string }) => Promise<void>;
+  signOut: () => Promise<void>;
+};
+
+declare global {
+  interface Window {
+    Clerk?: ClerkInstance;
+  }
+}
+
 type CompletionStyle = 'send_clean' | 'send_rested' | 'attempt';
 type ClimbStyle = 'top_rope' | 'lead';
 
@@ -148,6 +216,20 @@ const exportCsvButton = document.getElementById('exportCsvButton') as HTMLButton
 const importCsvButton = document.getElementById('importCsvButton') as HTMLButtonElement | null;
 const importCsvInput = document.getElementById('importCsvInput') as HTMLInputElement | null;
 const importCsvStatus = document.getElementById('importCsvStatus') as HTMLParagraphElement | null;
+const authForm = document.getElementById('authForm') as HTMLFormElement | null;
+const authEmailInput = document.getElementById('authEmail') as HTMLInputElement | null;
+const authCodeInput = document.getElementById('authCode') as HTMLInputElement | null;
+const authCodeWrap = document.getElementById('authCodeWrap') as HTMLLabelElement | null;
+const authHelper = document.getElementById('authHelper') as HTMLDivElement | null;
+const authSendCode = document.getElementById('authSendCode') as HTMLButtonElement | null;
+const authVerifyCode = document.getElementById('authVerifyCode') as HTMLButtonElement | null;
+const authSignOut = document.getElementById('authSignOut') as HTMLButtonElement | null;
+const authStatus = document.getElementById('authStatus') as HTMLDivElement | null;
+const convexHelloButton = document.getElementById('convexHello') as HTMLButtonElement | null;
+const convexHelloResult = document.getElementById('convexHelloResult') as HTMLDivElement | null;
+const convexUrlMeta = document.querySelector('meta[name="convex-url"]') as HTMLMetaElement | null;
+const convexUrl = convexUrlMeta?.content ?? '';
+const convexHttpUrl = convexUrl ? convexUrl.replace('.convex.cloud', '.convex.site') : '';
 
 const attemptForm = document.getElementById('attemptForm') as HTMLFormElement | null;
 const attemptGym = document.getElementById('attemptGym') as HTMLSelectElement | null;
@@ -361,6 +443,8 @@ const state = {
 };
 
 let messageTimeout: number | null = null;
+let pendingAuth: { type: 'signIn'; flow: ClerkSignIn } | { type: 'signUp'; flow: ClerkSignUp } | null =
+  null;
 
 const setMessage = (text: string) => {
   if (!messageBar) return;
@@ -378,6 +462,82 @@ const setMessage = (text: string) => {
 const setImportStatus = (text: string) => {
   if (!importCsvStatus) return;
   importCsvStatus.textContent = text;
+};
+
+let clerkLoaded = false;
+
+const waitForClerk = (timeoutMs = 10000) =>
+  new Promise<ClerkInstance>((resolve, reject) => {
+    const started = Date.now();
+    const check = () => {
+      if (window.Clerk) {
+        resolve(window.Clerk);
+        return;
+      }
+      if (Date.now() - started > timeoutMs) {
+        reject(new Error('Clerk failed to load'));
+        return;
+      }
+      window.setTimeout(check, 100);
+    };
+    check();
+  });
+
+const loadClerk = async () => {
+  const clerk = await waitForClerk();
+  if (!clerkLoaded) {
+    await clerk.load();
+    clerkLoaded = true;
+  }
+  return clerk;
+};
+
+const updateAuthStatus = (clerk: ClerkInstance) => {
+  if (!authStatus) return;
+  if (clerk.session && clerk.user) {
+    const email = clerk.user.primaryEmailAddress?.emailAddress ?? 'Signed in';
+    authStatus.textContent = `Signed in as ${email}`;
+    authStatus.classList.add('signed-in');
+    authSendCode?.setAttribute('hidden', 'true');
+    authVerifyCode?.setAttribute('hidden', 'true');
+    authSignOut?.removeAttribute('hidden');
+    authCodeWrap?.setAttribute('hidden', 'true');
+    authHelper?.setAttribute('hidden', 'true');
+    authEmailInput?.toggleAttribute('disabled', true);
+  } else {
+    authStatus.textContent = 'Not signed in.';
+    authStatus.classList.remove('signed-in');
+    authSendCode?.removeAttribute('hidden');
+    authVerifyCode?.setAttribute('hidden', 'true');
+    authSignOut?.setAttribute('hidden', 'true');
+    authCodeWrap?.setAttribute('hidden', 'true');
+    authHelper?.setAttribute('hidden', 'true');
+    authEmailInput?.toggleAttribute('disabled', false);
+  }
+};
+
+const getClerkErrorCode = (error: unknown) => {
+  if (!error || typeof error !== 'object') return null;
+  const maybeErrors = (error as { errors?: Array<{ code?: string }> }).errors;
+  if (!Array.isArray(maybeErrors) || maybeErrors.length === 0) return null;
+  const code = maybeErrors[0]?.code;
+  return typeof code === 'string' ? code : null;
+};
+
+const finalizeAuthSession = async (clerk: ClerkInstance, sessionId?: string) => {
+  if (!sessionId || !clerk.setActive) {
+    setMessage('Verification incomplete.');
+    updateAuthStatus(clerk);
+    return false;
+  }
+  await clerk.setActive({ session: sessionId });
+  updateAuthStatus(clerk);
+  if (!clerk.session) {
+    setMessage('Sign-in incomplete.');
+    return false;
+  }
+  setMessage('Signed in.');
+  return true;
 };
 
 const normalizeText = (value: string) => value.trim();
@@ -2137,6 +2297,171 @@ sessionGym?.addEventListener('change', () => {
 
 if (climbDateInput) climbDateInput.value = todayISO();
 
+const initAuth = async () => {
+  if (!authForm) return;
+  try {
+    const clerk = await loadClerk();
+    try {
+      await clerk.handleEmailLinkVerification({ redirectUrlComplete: window.location.href });
+    } catch (error) {
+      console.warn('Email link verification not completed', error);
+    }
+    updateAuthStatus(clerk);
+
+    authForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!authEmailInput) return;
+      const email = authEmailInput.value.trim();
+      if (!email) {
+        setMessage('Enter an email address.');
+        return;
+      }
+      const client = clerk.client;
+      if (!client) {
+        setMessage('Auth client not ready.');
+        return;
+      }
+      authSendCode?.toggleAttribute('disabled', true);
+      pendingAuth = null;
+      try {
+        const redirectUrl = window.location.href;
+        try {
+          const signIn = await client.signIn.create({ identifier: email });
+          const factor = signIn.supportedFirstFactors?.find(
+            (item) => item.strategy === 'email_code'
+          );
+          await signIn.prepareFirstFactor({
+            strategy: 'email_code',
+            redirectUrl,
+            emailAddressId: factor?.emailAddressId,
+          });
+          pendingAuth = { type: 'signIn', flow: signIn };
+        } catch (error) {
+          const code = getClerkErrorCode(error);
+          if (code && code !== 'form_identifier_not_found') {
+            throw error;
+          }
+          const signUp = await client.signUp.create({ emailAddress: email });
+          await signUp.prepareEmailAddressVerification({
+            strategy: 'email_code',
+            redirectUrl,
+          });
+          pendingAuth = { type: 'signUp', flow: signUp };
+        }
+        authCodeWrap?.removeAttribute('hidden');
+        authHelper?.removeAttribute('hidden');
+        authVerifyCode?.removeAttribute('hidden');
+        authSendCode?.setAttribute('hidden', 'true');
+        authCodeInput?.focus();
+        setMessage('Verification code sent. Check your email.');
+      } catch (error) {
+        const code = getClerkErrorCode(error);
+        if (code === 'form_identifier_exists') {
+          setMessage('Email already exists. Try signing in.');
+        } else {
+          console.error('Failed to send verification code', error);
+          setMessage('Failed to send verification code.');
+        }
+      } finally {
+        authSendCode?.toggleAttribute('disabled', false);
+      }
+    });
+
+    authVerifyCode?.addEventListener('click', async () => {
+      const code = authCodeInput?.value.trim() ?? '';
+      if (!code) {
+        setMessage('Enter the verification code.');
+        return;
+      }
+      if (!pendingAuth) {
+        setMessage('Send a code first.');
+        return;
+      }
+      authVerifyCode?.toggleAttribute('disabled', true);
+      try {
+        if (pendingAuth.type === 'signIn') {
+          const result = await pendingAuth.flow.attemptFirstFactor({
+            strategy: 'email_code',
+            code,
+          });
+          if (result.status !== 'complete') {
+            setMessage('Verification pending. Check your email for the latest code.');
+            return;
+          }
+          const didSet = await finalizeAuthSession(clerk, result.createdSessionId);
+          if (!didSet) return;
+        } else {
+          const result = await pendingAuth.flow.attemptEmailAddressVerification({ code });
+          if (result.status !== 'complete') {
+            setMessage('Verification pending. Check your email for the latest code.');
+            return;
+          }
+          const didSet = await finalizeAuthSession(clerk, result.createdSessionId);
+          if (!didSet) return;
+        }
+        pendingAuth = null;
+        authCodeInput && (authCodeInput.value = '');
+      } catch (error) {
+        console.error('Verification failed', error);
+        setMessage('Invalid or expired code.');
+      } finally {
+        authVerifyCode?.toggleAttribute('disabled', false);
+      }
+    });
+
+    authSignOut?.addEventListener('click', async () => {
+      await clerk.signOut();
+      pendingAuth = null;
+      if (authEmailInput) authEmailInput.value = '';
+      if (authCodeInput) authCodeInput.value = '';
+      updateAuthStatus(clerk);
+      if (convexHelloResult) convexHelloResult.textContent = '';
+    });
+
+    convexHelloButton?.addEventListener('click', async () => {
+      if (!convexHelloResult) return;
+      if (!convexHttpUrl) {
+        convexHelloResult.textContent = 'Missing Convex HTTP URL.';
+        return;
+      }
+      if (!clerk.session) {
+        convexHelloResult.textContent = 'Sign in to test Convex.';
+        return;
+      }
+      const token = await clerk.session.getToken({ template: 'convex' });
+      if (!token) {
+        convexHelloResult.textContent = 'Unable to fetch Convex token.';
+        return;
+      }
+      convexHelloResult.textContent = 'Calling Convex...';
+      try {
+        const response = await fetch(`${convexHttpUrl}/hello`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        if (!response.ok) {
+          convexHelloResult.textContent = `Convex error: ${response.status}`;
+          return;
+        }
+        const payload = (await response.json()) as { message?: string; subject?: string };
+        convexHelloResult.textContent = `OK: ${payload.message ?? 'hello'} (${payload.subject ?? 'user'})`;
+      } catch (error) {
+        console.error('Convex test failed', error);
+        convexHelloResult.textContent = 'Convex request failed.';
+      }
+    });
+
+    updateAuthStatus(clerk);
+    clerk.addListener?.(() => {
+      updateAuthStatus(clerk);
+    });
+  } catch (error) {
+    console.error('Clerk init failed', error);
+    setMessage('Auth failed to initialize.');
+  }
+};
+
 const initApp = async () => {
   await requestPersistentStorage();
   state.data = await readData();
@@ -2144,3 +2469,4 @@ const initApp = async () => {
 };
 
 void initApp();
+void initAuth();

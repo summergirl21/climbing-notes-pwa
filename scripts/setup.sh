@@ -103,6 +103,12 @@ main() {
   ensure_node
   log "Installing project dependencies..."
   npm install
+  if [[ ! -x "node_modules/.bin/convex" ]]; then
+    log "Installing Convex CLI dependency..."
+    npm install --save-dev convex
+  else
+    log "Convex CLI already installed."
+  fi
   log "Done. Build with: npm run build"
 }
 
