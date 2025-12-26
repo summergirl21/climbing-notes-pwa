@@ -404,6 +404,12 @@
       text-align: left;
     }
 
+    @supports (-webkit-touch-callout: none) {
+      input[type="date"] {
+        min-height: 44px;
+      }
+    }
+
     textarea {
       min-height: 80px;
       resize: vertical;
