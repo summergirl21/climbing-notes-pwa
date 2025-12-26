@@ -7,17 +7,15 @@ const http = httpRouter();
 
 const ALLOWED_ORIGINS = new Set(["http://localhost:8000", "https://summergirl21.github.io"]);
 
-const buildCorsHeaders = (origin: string | null) => {
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+const getCorsHeaders = (origin: string | null, methods: string) => {
+  if (!origin || !ALLOWED_ORIGINS.has(origin)) return null;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": methods,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
   };
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Vary"] = "Origin";
-  }
-  return headers;
 };
 
 const isAllowedOrigin = (origin: string | null) => !origin || ALLOWED_ORIGINS.has(origin);
@@ -27,9 +25,9 @@ http.route({
   method: "OPTIONS",
   handler: httpAction(async (_ctx, request) => {
     const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
+    const corsHeaders = getCorsHeaders(origin, "GET, OPTIONS");
+    if (!corsHeaders) {
+      return new Response("Forbidden", { status: 403 });
     }
     return new Response(null, {
       status: 204,
@@ -43,9 +41,9 @@ http.route({
   method: "OPTIONS",
   handler: httpAction(async (_ctx, request) => {
     const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
+    const corsHeaders = getCorsHeaders(origin, "POST, OPTIONS");
+    if (!corsHeaders) {
+      return new Response("Forbidden", { status: 403 });
     }
     return new Response(null, {
       status: 204,
@@ -59,9 +57,9 @@ http.route({
   method: "OPTIONS",
   handler: httpAction(async (_ctx, request) => {
     const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
+    const corsHeaders = getCorsHeaders(origin, "POST, OPTIONS");
+    if (!corsHeaders) {
+      return new Response("Forbidden", { status: 403 });
     }
     return new Response(null, {
       status: 204,
@@ -75,29 +73,29 @@ http.route({
   method: "GET",
   handler: httpAction(async (ctx, request) => {
     const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
+    const corsHeaders = getCorsHeaders(origin, "GET, OPTIONS");
     if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
+      return new Response("Forbidden", { status: 403 });
     }
     let identity = null;
     try {
       identity = await ctx.auth.getUserIdentity();
     } catch (error) {
       console.error("Auth failed", error);
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
     }
     if (!identity) {
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
     }
     return new Response(
       JSON.stringify({
-        message: "hello from convex",
+        message: "hello from convex!",
         subject: identity.subject,
         email: identity.email,
       }),
       {
         headers: {
-          ...corsHeaders,
+          ...(corsHeaders ?? {}),
           "Content-Type": "application/json",
         },
       }
@@ -110,19 +108,19 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
+    const corsHeaders = getCorsHeaders(origin, "POST, OPTIONS");
     if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
+      return new Response("Forbidden", { status: 403 });
     }
     let identity = null;
     try {
       identity = await ctx.auth.getUserIdentity();
     } catch (error) {
       console.error("Auth failed", error);
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
     }
     if (!identity) {
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
     }
 
     let payload: { lastSyncAtMs?: number; lastSyncKey?: string } = {};
@@ -139,13 +137,13 @@ http.route({
       });
       return new Response(JSON.stringify(result), {
         headers: {
-          ...corsHeaders,
+          ...(corsHeaders ?? {}),
           "Content-Type": "application/json",
         },
       });
     } catch (error) {
       console.error("Sync pull failed", error);
-      return new Response("Sync failed", { status: 500, headers: corsHeaders });
+      return new Response("Sync failed", { status: 500, headers: corsHeaders ?? undefined });
     }
   }),
 });
@@ -155,19 +153,19 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
+    const corsHeaders = getCorsHeaders(origin, "POST, OPTIONS");
     if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
+      return new Response("Forbidden", { status: 403 });
     }
     let identity = null;
     try {
       identity = await ctx.auth.getUserIdentity();
     } catch (error) {
       console.error("Auth failed", error);
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
     }
     if (!identity) {
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
     }
 
     let payload: { rows?: unknown[] } = {};
@@ -178,7 +176,7 @@ http.route({
     }
 
     if (!Array.isArray(payload.rows)) {
-      return new Response("Invalid payload", { status: 400, headers: corsHeaders });
+      return new Response("Invalid payload", { status: 400, headers: corsHeaders ?? undefined });
     }
 
     try {
@@ -196,13 +194,13 @@ http.route({
       const result = await ctx.runMutation(api.sync.syncPush, { rows });
       return new Response(JSON.stringify(result), {
         headers: {
-          ...corsHeaders,
+          ...(corsHeaders ?? {}),
           "Content-Type": "application/json",
         },
       });
     } catch (error) {
       console.error("Sync push failed", error);
-      return new Response("Sync failed", { status: 500, headers: corsHeaders });
+      return new Response("Sync failed", { status: 500, headers: corsHeaders ?? undefined });
     }
   }),
 });
