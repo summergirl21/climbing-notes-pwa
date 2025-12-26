@@ -126,7 +126,7 @@
 - [x] Combine gyms tab with one of the other pages, maybe settings?
 - [x] Make the top header smaller, remove the offline indicator?
 - [x] Add a version number or build date so you can see which version is loaded, in settings
-- [ ] Add import and export data feature
+- [x] Add import and export data feature
 - [ ] Work more on making data persistent
 - [x] Add option for lead vs top rope
 - [ ] show multiple recent session on the stats page
