@@ -723,7 +723,6 @@ const formatCompletionStyle = (style: CompletionStyle) =>
   style === 'send_clean' ? 'Send (no rest)' : style === 'send_rested' ? 'Send (rested)' : 'Attempt';
 
 const formatClimbStyle = (style: ClimbStyle) => (style === 'lead' ? 'Lead' : 'Top rope');
-
 const setFormDisabled = (form: HTMLFormElement | null, disabled: boolean) => {
   if (!form) return;
   form.querySelectorAll('input, select, textarea, button').forEach((element) => {
