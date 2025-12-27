@@ -81,6 +81,11 @@
 - Convex stores per-user sync state:
   - `lastSyncAt` (server timestamp).
   - Row data for sync (either full snapshot or an append-only list of events).
+- Deletes are represented as tombstone rows:
+  - `record_type`: `tombstone_gym`, `tombstone_route`, or `tombstone_attempt`.
+  - Exactly one identifier is set: `gym_name`, `route_id`, or `attempt_id`.
+  - `updated_at` is the server deletion time and wins ties against non-tombstone rows.
+  - Keep tombstones long enough for all devices to observe them (or indefinitely).
 - Sync flow (simple):
   - Client builds rows using the CSV export helpers and sends rows since the last sync.
   - Server upserts rows and returns rows updated since `lastSyncAt` plus a new server timestamp.
@@ -90,6 +95,7 @@
 - CSV import/export stays as the manual backup/restore feature.
 - CSV column set must stay aligned with the sync payload (includes `climb_style`, `created_at`, `updated_at`).
 - Imported rows merge into local data; any further syncing uses the same row shape.
+- CSV backups do not include tombstone rows (deletes only flow through sync).
 
 
 # TODOs:
