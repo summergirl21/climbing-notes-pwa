@@ -15,7 +15,7 @@ Static PWA authored in TypeScript. Build emits to `docs/` (the folder you’ll p
 ## Convex setup
 - Run `npx convex dev` and select the shared project.
 - Keep `npx convex dev` running while you develop.
-- Auth is assumed preconfigured.
+- Auth is assumed preconfigured (Clerk).
 
 ## App wiring
 - Convex HTTP calls use the deployment URL from `<meta name="convex-url">` in `index.html`.
@@ -46,3 +46,9 @@ Static PWA authored in TypeScript. Build emits to `docs/` (the folder you’ll p
 - Edit `index.html` for layout, and change logic in `src/main.ts`.
 - Service worker logic lives in `src/service-worker.ts` (bump `CACHE_NAME` when you change assets to force a fresh cache).
 - Update icons in `assets/icons` and tweak manifest values in `manifest.webmanifest`.
+
+## Sync overview
+- Sync is manual (Settings → Refresh) and only runs when signed in.
+- First sync sends a full snapshot; later syncs push queued changes plus tombstones.
+- Deletes create tombstones (gym/route/attempt) that win on ties by client timestamp.
+- Convex returns rows with server timestamps; the client merges by `updated_at`.

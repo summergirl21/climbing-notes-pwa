@@ -1,3 +1,29 @@
+import { buildCsv, buildExportRows, mergeImportedData, parseCsvData } from './csv.js';
+import { createId, isValidGrade, normalizeGrade, normalizeText, toRouteId } from './domain.js';
+import { createEmptyData } from './models.js';
+import type { Attempt, ClimbStyle, CompletionStyle, Route } from './models.js';
+import { createPersistence } from './persistence.js';
+import {
+  applySyncRows,
+  buildAttemptSyncRow,
+  buildGymSyncRow,
+  buildRouteSyncRow,
+  buildSyncRowsFromData,
+  getMaxCursor,
+} from './syncClient.js';
+import type { SyncRow } from './syncClient.js';
+import { readSyncMeta, writeSyncMeta } from './syncMeta.js';
+import type { SyncMeta } from './syncMeta.js';
+import { addTombstones, clearTombstones, readTombstones } from './tombstones.js';
+import type { TombstoneRow } from './tombstones.js';
+import {
+  addSyncRows,
+  clearSyncQueue,
+  getSyncRowKey,
+  readSyncQueue,
+  removeSyncRows,
+} from './syncQueue.js';
+
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
@@ -54,7 +80,7 @@ type ClerkClient = {
 type ClerkInstance = {
   load: () => Promise<void>;
   session: ClerkSession | null;
-  user: { primaryEmailAddress?: { emailAddress: string } } | null;
+  user: { id?: string; primaryEmailAddress?: { emailAddress: string } } | null;
   client?: ClerkClient;
   setActive?: (options: { session: string }) => Promise<void>;
   addListener?: (listener: (state: { session: ClerkSession | null }) => void) => void;
@@ -71,98 +97,11 @@ declare global {
   }
 }
 
-type CompletionStyle = 'send_clean' | 'send_rested' | 'attempt';
-type ClimbStyle = 'top_rope' | 'lead';
-
-type Gym = {
-  name: string;
-  createdAt: string;
-  updatedAt?: string;
-};
-
-type Route = {
-  routeId: string;
-  gymName: string;
-  ropeNumber: string;
-  color: string;
-  setDate: string;
-  grade: string;
-  createdAt: string;
-  updatedAt?: string;
-};
-
-type Attempt = {
-  attemptId: string;
-  routeId: string;
-  climbDate: string;
-  attemptIndex: number;
-  climbStyle: ClimbStyle;
-  completionStyle: CompletionStyle;
-  notes: string;
-  createdAt: string;
-  updatedAt?: string;
-};
-
-type DataStore = {
-  version: number;
-  gyms: Gym[];
-  routes: Route[];
-  attempts: Attempt[];
-};
-
-const STORAGE_KEY = 'climbingNotesData';
-const DB_NAME = 'climbingNotesDb';
-const DB_STORE = 'appData';
-const DB_DATA_KEY = 'data';
 const THEME_KEY = 'climbingNotesTheme';
 const CHART_STYLE_KEY = 'climbingNotesChartStyle';
 
 type ThemePreference = 'system' | 'light' | 'dark';
 type ChartStyle = 'bars' | 'histogram';
-
-const createEmptyData = (): DataStore => ({ version: 1, gyms: [], routes: [], attempts: [] });
-
-const normalizeData = (data: DataStore): DataStore => ({
-  version: data.version ?? 1,
-  gyms: data.gyms ?? [],
-  routes: data.routes ?? [],
-  attempts: (data.attempts ?? []).map((attempt) => ({
-    ...attempt,
-    climbStyle: attempt.climbStyle ?? 'top_rope',
-  })),
-});
-
-const loadLegacyData = (): DataStore | null => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as DataStore;
-    if (!parsed || !Array.isArray(parsed.gyms)) {
-      return null;
-    }
-    return normalizeData(parsed);
-  } catch (error) {
-    console.warn('Failed to load legacy data', error);
-    return null;
-  }
-};
-
-const openDatabase = () =>
-  new Promise<IDBDatabase>((resolve, reject) => {
-    if (!('indexedDB' in window)) {
-      reject(new Error('IndexedDB is unavailable'));
-      return;
-    }
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(DB_STORE)) {
-        db.createObjectStore(DB_STORE, { keyPath: 'key' });
-      }
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
 
 const requestPersistentStorage = async () => {
   if (!('storage' in navigator) || !navigator.storage.persist) return;
@@ -203,6 +142,11 @@ const loadChartStyle = (): ChartStyle => {
   return 'bars';
 };
 
+const { readData, saveData } = createPersistence({
+  localStorage: window.localStorage,
+  indexedDB: window.indexedDB,
+});
+
 const statusText = document.getElementById('statusText') as HTMLSpanElement | null;
 const onlineDot = document.getElementById('onlineDot') as HTMLDivElement | null;
 const installButton = document.getElementById('installButton') as HTMLButtonElement | null;
@@ -225,8 +169,8 @@ const authSendCode = document.getElementById('authSendCode') as HTMLButtonElemen
 const authVerifyCode = document.getElementById('authVerifyCode') as HTMLButtonElement | null;
 const authSignOut = document.getElementById('authSignOut') as HTMLButtonElement | null;
 const authStatus = document.getElementById('authStatus') as HTMLDivElement | null;
-const convexHelloButton = document.getElementById('convexHello') as HTMLButtonElement | null;
-const convexHelloResult = document.getElementById('convexHelloResult') as HTMLDivElement | null;
+const syncStatus = document.getElementById('syncStatus') as HTMLDivElement | null;
+const syncRefreshButton = document.getElementById('syncRefresh') as HTMLButtonElement | null;
 const convexUrlMeta = document.querySelector('meta[name="convex-url"]') as HTMLMetaElement | null;
 const convexUrl = convexUrlMeta?.content ?? '';
 const convexHttpUrl = convexUrl ? convexUrl.replace('.convex.cloud', '.convex.site') : '';
@@ -361,80 +305,6 @@ gradeChartStyleSelect?.addEventListener('change', () => {
   renderStats();
 });
 
-const saveData = async (data: DataStore) => {
-  const normalized = normalizeData(data);
-  if (!('indexedDB' in window)) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-    return;
-  }
-  let db: IDBDatabase | null = null;
-  try {
-    db = await openDatabase();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db?.transaction(DB_STORE, 'readwrite');
-      if (!tx) {
-        reject(new Error('Failed to create transaction'));
-        return;
-      }
-      const store = tx.objectStore(DB_STORE);
-      store.put({ key: DB_DATA_KEY, value: normalized });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-  } catch (error) {
-    console.error('Failed to save data', error);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
-    } catch (fallbackError) {
-      console.error('Failed to save fallback data', fallbackError);
-    }
-  } finally {
-    db?.close();
-  }
-};
-
-const readData = async (): Promise<DataStore> => {
-  if (!('indexedDB' in window)) {
-    return loadLegacyData() ?? createEmptyData();
-  }
-  try {
-    const db = await openDatabase();
-    return await new Promise((resolve) => {
-      const tx = db.transaction(DB_STORE, 'readonly');
-      const store = tx.objectStore(DB_STORE);
-      const request = store.get(DB_DATA_KEY);
-      request.onsuccess = () => {
-        const record = request.result as { key: string; value: DataStore } | undefined;
-        if (record?.value) {
-          resolve(normalizeData(record.value));
-          return;
-        }
-        const legacy = loadLegacyData();
-        if (legacy) {
-          void saveData(legacy);
-          resolve(legacy);
-          return;
-        }
-        resolve(createEmptyData());
-      };
-      request.onerror = () => {
-        console.error('Failed to read data', request.error);
-        resolve(loadLegacyData() ?? createEmptyData());
-      };
-      tx.oncomplete = () => {
-        db.close();
-      };
-      tx.onabort = () => {
-        db.close();
-      };
-    });
-  } catch (error) {
-    console.error('Failed to open database', error);
-    return loadLegacyData() ?? createEmptyData();
-  }
-};
-
 const state = {
   data: createEmptyData(),
   editingGymName: '' as string | null,
@@ -492,11 +362,118 @@ const loadClerk = async () => {
   return clerk;
 };
 
+let syncInProgress = false;
+let syncSessionActive = false;
+let syncUserKey: string | null = null;
+let syncMeta: SyncMeta | null = null;
+let syncStatusMessage = '';
+const SYNC_USER_KEY_STORAGE = 'climbingNotesSyncUserKey';
+let lastSyncUserKey = window.localStorage.getItem(SYNC_USER_KEY_STORAGE);
+
+const rememberSyncUserKey = (userKey: string) => {
+  syncUserKey = userKey;
+  lastSyncUserKey = userKey;
+  window.localStorage.setItem(SYNC_USER_KEY_STORAGE, userKey);
+};
+
+const getQueueUserKey = () => syncUserKey ?? lastSyncUserKey;
+
+const enqueueSyncRows = (rows: SyncRow[]) => {
+  const queueUserKey = getQueueUserKey();
+  if (!queueUserKey || rows.length === 0) return;
+  addSyncRows(window.localStorage, queueUserKey, rows);
+};
+
+const dequeueSyncRows = (keys: string[]) => {
+  const queueUserKey = getQueueUserKey();
+  if (!queueUserKey || keys.length === 0) return;
+  removeSyncRows(window.localStorage, queueUserKey, keys);
+};
+
+const enqueueTombstones = (rows: TombstoneRow[]) => {
+  const queueUserKey = getQueueUserKey();
+  if (!queueUserKey || rows.length === 0) return;
+  addTombstones(window.localStorage, queueUserKey, rows);
+};
+
+const decodeBase64Url = (value: string) => {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 ? '='.repeat(4 - (normalized.length % 4)) : '';
+  return atob(`${normalized}${padding}`);
+};
+
+const getUserKeyFromToken = (token: string) => {
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const payload = JSON.parse(decodeBase64Url(parts[1]));
+    return typeof payload.sub === 'string' ? payload.sub : null;
+  } catch (error) {
+    console.warn('Failed to decode sync token', error);
+    return null;
+  }
+};
+
+const formatSyncTimestamp = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const updateSyncStatus = () => {
+  if (!syncStatus || !syncRefreshButton) return;
+  if (!syncSessionActive) {
+    syncStatus.textContent = 'Sign in to sync.';
+    syncRefreshButton.toggleAttribute('disabled', true);
+    return;
+  }
+  if (syncInProgress) {
+    syncStatus.textContent = 'Syncing...';
+    syncRefreshButton.toggleAttribute('disabled', true);
+    return;
+  }
+  if (syncStatusMessage) {
+    syncStatus.textContent = syncStatusMessage;
+    syncRefreshButton.toggleAttribute('disabled', false);
+    return;
+  }
+  if (syncMeta?.lastSyncedAt) {
+    syncStatus.textContent = `Last synced ${formatSyncTimestamp(syncMeta.lastSyncedAt)}`;
+    syncRefreshButton.toggleAttribute('disabled', false);
+    return;
+  }
+  syncStatus.textContent = 'Ready to sync.';
+  syncRefreshButton.toggleAttribute('disabled', false);
+};
+
+const refreshSyncIdentity = async (clerk: ClerkInstance) => {
+  if (!clerk.session) return;
+  try {
+    const token = await clerk.session.getToken({ template: 'convex' });
+    if (!token) return;
+    const userKey = getUserKeyFromToken(token);
+    if (!userKey || userKey === syncUserKey) return;
+    rememberSyncUserKey(userKey);
+    syncMeta = readSyncMeta(window.localStorage, userKey);
+    syncStatusMessage = '';
+    updateSyncStatus();
+  } catch (error) {
+    console.warn('Failed to refresh sync identity', error);
+  }
+};
+
 const updateAuthStatus = (clerk: ClerkInstance) => {
   if (!authStatus) return;
-  if (clerk.session && clerk.user) {
-    const email = clerk.user.primaryEmailAddress?.emailAddress ?? 'Signed in';
-    authStatus.textContent = `Signed in as ${email}`;
+  const isSignedIn = Boolean(clerk.session);
+  syncSessionActive = isSignedIn;
+  if (isSignedIn) {
+    const email = clerk.user?.primaryEmailAddress?.emailAddress;
+    authStatus.textContent = email ? `Signed in as ${email}` : 'Signed in.';
     authStatus.classList.add('signed-in');
     authSendCode?.setAttribute('hidden', 'true');
     authVerifyCode?.setAttribute('hidden', 'true');
@@ -504,6 +481,10 @@ const updateAuthStatus = (clerk: ClerkInstance) => {
     authCodeWrap?.setAttribute('hidden', 'true');
     authHelper?.setAttribute('hidden', 'true');
     authEmailInput?.toggleAttribute('disabled', true);
+    syncMeta = syncUserKey ? readSyncMeta(window.localStorage, syncUserKey) : syncMeta;
+    syncStatusMessage = '';
+    updateSyncStatus();
+    void refreshSyncIdentity(clerk);
   } else {
     authStatus.textContent = 'Not signed in.';
     authStatus.classList.remove('signed-in');
@@ -513,6 +494,11 @@ const updateAuthStatus = (clerk: ClerkInstance) => {
     authCodeWrap?.setAttribute('hidden', 'true');
     authHelper?.setAttribute('hidden', 'true');
     authEmailInput?.toggleAttribute('disabled', false);
+    syncSessionActive = false;
+    syncUserKey = null;
+    syncMeta = null;
+    syncStatusMessage = '';
+    updateSyncStatus();
   }
 };
 
@@ -540,31 +526,170 @@ const finalizeAuthSession = async (clerk: ClerkInstance, sessionId?: string) => 
   return true;
 };
 
-const normalizeText = (value: string) => value.trim();
-const normalizeGrade = (value: string) => {
-  const trimmed = value.trim().toLowerCase();
-  if (!trimmed) return '';
-  if (trimmed.startsWith('5.')) return trimmed;
-  if (/^\d+([abcd]|[+-])?$/.test(trimmed)) {
-    return `5.${trimmed}`;
+const filterTombstonesAgainstLocal = (tombstones: TombstoneRow[]) => {
+  if (tombstones.length === 0) return tombstones;
+  const gymNames = new Set(state.data.gyms.map((gym) => gym.name));
+  const routeIds = new Set(state.data.routes.map((route) => route.routeId));
+  const attemptIds = new Set(state.data.attempts.map((attempt) => attempt.attemptId));
+
+  return tombstones.filter((tombstone) => {
+    if (tombstone.record_type === 'tombstone_gym') {
+      return tombstone.gym_name ? !gymNames.has(tombstone.gym_name) : false;
+    }
+    if (tombstone.record_type === 'tombstone_route') {
+      return tombstone.route_id ? !routeIds.has(tombstone.route_id) : false;
+    }
+    if (tombstone.record_type === 'tombstone_attempt') {
+      return tombstone.attempt_id ? !attemptIds.has(tombstone.attempt_id) : false;
+    }
+    return false;
+  });
+};
+
+const runSync = async (clerk: ClerkInstance) => {
+  if (syncInProgress) return;
+  if (!convexHttpUrl) {
+    syncStatusMessage = 'Missing Convex HTTP URL.';
+    updateSyncStatus();
+    return;
   }
-  return trimmed;
+  if (!clerk.session) {
+    syncStatusMessage = 'Sign in to sync.';
+    updateSyncStatus();
+    return;
+  }
+  const token = await clerk.session.getToken({ template: 'convex' });
+  if (!token) {
+    syncStatusMessage = 'Unable to fetch Convex token.';
+    updateSyncStatus();
+    return;
+  }
+  syncSessionActive = true;
+  const userKey = getUserKeyFromToken(token);
+  if (!userKey) {
+    syncStatusMessage = 'Missing user identity.';
+    updateSyncStatus();
+    return;
+  }
+  rememberSyncUserKey(userKey);
+  syncMeta = syncMeta ?? readSyncMeta(window.localStorage, userKey);
+
+  syncInProgress = true;
+  syncStatusMessage = '';
+  updateSyncStatus();
+
+  try {
+    let pushConflictCount = 0;
+    const tombstones = readTombstones(window.localStorage, userKey);
+    const filteredTombstones = filterTombstonesAgainstLocal(tombstones);
+    if (filteredTombstones.length !== tombstones.length) {
+      clearTombstones(window.localStorage, userKey);
+      if (filteredTombstones.length > 0) {
+        addTombstones(window.localStorage, userKey, filteredTombstones);
+      }
+    }
+
+    const hasSyncedBefore = Boolean(syncMeta?.lastSyncedAt);
+    const queuedRows = readSyncQueue(window.localStorage, userKey);
+    const dataRows = hasSyncedBefore ? queuedRows : buildSyncRowsFromData(state.data);
+    const pushRows = dataRows.concat(filteredTombstones);
+    if (pushRows.length > 0) {
+      const pushResponse = await fetch(`${convexHttpUrl}/sync/push`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ rows: pushRows }),
+      });
+      if (!pushResponse.ok) {
+        syncStatusMessage =
+          pushResponse.status === 401
+            ? 'Sign in to sync.'
+            : `Sync push failed (${pushResponse.status}).`;
+        return;
+      }
+      try {
+        const payload = (await pushResponse.json()) as { conflicts?: Array<unknown> };
+        if (Array.isArray(payload.conflicts)) {
+          pushConflictCount = payload.conflicts.length;
+        }
+      } catch (error) {
+        console.warn('Failed to parse sync push response', error);
+      }
+      clearSyncQueue(window.localStorage, userKey);
+      if (filteredTombstones.length > 0) {
+        clearTombstones(window.localStorage, userKey);
+      }
+    }
+
+    const response = await fetch(`${convexHttpUrl}/sync/pull`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        lastSyncAtMs: syncMeta?.lastSyncAtMs,
+        lastSyncKey: syncMeta?.lastSyncKey,
+      }),
+    });
+
+    if (!response.ok) {
+      syncStatusMessage =
+        response.status === 401 ? 'Sign in to sync.' : `Sync pull failed (${response.status}).`;
+      return;
+    }
+
+    const payload = (await response.json()) as { rows?: SyncRow[]; serverTime?: string };
+    if (!payload.serverTime) {
+      syncStatusMessage = 'Sync failed: missing server time.';
+      return;
+    }
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    const merged = applySyncRows(state.data, rows);
+    state.data = merged.data;
+    await saveData(state.data);
+    renderAll();
+
+    const previousSyncAtMs = syncMeta?.lastSyncAtMs;
+    const previousSyncKey = syncMeta?.lastSyncKey ?? '';
+    const nextCursor = getMaxCursor(rows);
+    let lastSyncAtMs: number | undefined = previousSyncAtMs;
+    let lastSyncKey = previousSyncKey;
+
+    if (nextCursor) {
+      const currentMs = lastSyncAtMs ?? Number.NEGATIVE_INFINITY;
+      if (nextCursor.lastSyncAtMs > currentMs) {
+        lastSyncAtMs = nextCursor.lastSyncAtMs;
+        lastSyncKey = nextCursor.lastSyncKey;
+      } else if (nextCursor.lastSyncAtMs === currentMs && nextCursor.lastSyncKey > lastSyncKey) {
+        lastSyncKey = nextCursor.lastSyncKey;
+      }
+    }
+
+    syncMeta = {
+      lastSyncAtMs,
+      lastSyncKey: lastSyncAtMs !== undefined ? lastSyncKey : undefined,
+      lastSyncedAt: payload.serverTime,
+    };
+    writeSyncMeta(window.localStorage, userKey, syncMeta);
+    syncStatusMessage = '';
+    setMessage(
+      pushConflictCount > 0
+        ? 'Sync complete (conflicts resolved from newer data).'
+        : 'Sync complete.'
+    );
+  } catch (error) {
+    console.error('Sync failed', error);
+    syncStatusMessage = 'Sync failed.';
+  } finally {
+    syncInProgress = false;
+    updateSyncStatus();
+  }
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
-
-const createId = () => {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  return `id_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-};
-
-const toRouteId = (gymName: string, ropeNumber: string, color: string, setDate: string) =>
-  `${gymName}:${ropeNumber}:${color}:${setDate}`;
-
-const isValidGrade = (grade: string) =>
-  /^5\.(\d+)([abcd]|[+-])?$/.test(normalizeGrade(grade));
 
 const gradeToValue = (grade: string) => {
   const trimmed = grade.trim().toLowerCase();
@@ -598,441 +723,6 @@ const formatCompletionStyle = (style: CompletionStyle) =>
   style === 'send_clean' ? 'Send (no rest)' : style === 'send_rested' ? 'Send (rested)' : 'Attempt';
 
 const formatClimbStyle = (style: ClimbStyle) => (style === 'lead' ? 'Lead' : 'Top rope');
-
-const CSV_COLUMNS = [
-  'record_type',
-  'gym_name',
-  'route_id',
-  'attempt_id',
-  'rope_number',
-  'color',
-  'set_date',
-  'grade',
-  'climb_date',
-  'attempt_index',
-  'climb_style',
-  'completion_style',
-  'notes',
-  'created_at',
-  'updated_at',
-] as const;
-
-type CsvColumn = (typeof CSV_COLUMNS)[number];
-
-const escapeCsvValue = (value: string) => {
-  const needsQuotes = /[",\n\r]/.test(value);
-  const escaped = value.replace(/"/g, '""');
-  return needsQuotes ? `"${escaped}"` : escaped;
-};
-
-const buildCsv = (rows: string[][]) =>
-  rows.map((row) => row.map((cell) => escapeCsvValue(cell ?? '')).join(',')).join('\n');
-
-const parseCsvRows = (text: string) => {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === '"') {
-      if (inQuotes && text[index + 1] === '"') {
-        current += '"';
-        index += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (char === ',' && !inQuotes) {
-      row.push(current);
-      current = '';
-      continue;
-    }
-    if ((char === '\n' || char === '\r') && !inQuotes) {
-      if (char === '\r' && text[index + 1] === '\n') {
-        index += 1;
-      }
-      row.push(current);
-      rows.push(row);
-      row = [];
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-
-  if (current.length > 0 || row.length > 0) {
-    row.push(current);
-    rows.push(row);
-  }
-
-  if (rows.length > 0 && rows[0][0]) {
-    rows[0][0] = rows[0][0].replace(/^\uFEFF/, '');
-  }
-
-  return rows.filter((csvRow) => csvRow.some((cell) => cell.length > 0));
-};
-
-const pickEarlierTimestamp = (a: string, b: string) => (a < b ? a : b);
-
-const isIncomingNewer = (incoming?: { updatedAt?: string }, existing?: { updatedAt?: string }) => {
-  if (!incoming?.updatedAt) return false;
-  if (!existing?.updatedAt) return true;
-  return incoming.updatedAt > existing.updatedAt;
-};
-
-const buildCsvRow = (record: Partial<Record<CsvColumn, string>> & { record_type: string }) =>
-  CSV_COLUMNS.map((column) => record[column] ?? '');
-
-const buildExportRows = (data: DataStore) => {
-  const rows: string[][] = [CSV_COLUMNS.slice()];
-
-  data.gyms
-    .slice()
-    .sort((a, b) => a.name.localeCompare(b.name))
-    .forEach((gym) => {
-      rows.push(
-        buildCsvRow({
-          record_type: 'gym',
-          gym_name: gym.name,
-          created_at: gym.createdAt ?? '',
-          updated_at: gym.updatedAt ?? '',
-        })
-      );
-    });
-
-  data.routes
-    .slice()
-    .sort((a, b) => {
-      if (a.gymName !== b.gymName) return a.gymName.localeCompare(b.gymName);
-      if (a.ropeNumber !== b.ropeNumber) return a.ropeNumber.localeCompare(b.ropeNumber);
-      return a.setDate.localeCompare(b.setDate);
-    })
-    .forEach((route) => {
-      rows.push(
-        buildCsvRow({
-          record_type: 'route',
-          gym_name: route.gymName,
-          route_id: route.routeId,
-          rope_number: route.ropeNumber,
-          color: route.color,
-          set_date: route.setDate,
-          grade: route.grade,
-          created_at: route.createdAt ?? '',
-          updated_at: route.updatedAt ?? '',
-        })
-      );
-    });
-
-  data.attempts
-    .slice()
-    .sort((a, b) => b.climbDate.localeCompare(a.climbDate))
-    .forEach((attempt) => {
-      rows.push(
-        buildCsvRow({
-          record_type: 'attempt',
-          route_id: attempt.routeId,
-          attempt_id: attempt.attemptId,
-          climb_date: attempt.climbDate,
-          attempt_index: String(attempt.attemptIndex),
-          climb_style: attempt.climbStyle,
-          completion_style: attempt.completionStyle,
-          notes: attempt.notes ?? '',
-          created_at: attempt.createdAt ?? '',
-          updated_at: attempt.updatedAt ?? '',
-        })
-      );
-    });
-
-  return rows;
-};
-
-type CsvImportData = {
-  gyms: Gym[];
-  routes: Route[];
-  attempts: Attempt[];
-  skippedRows: number;
-};
-
-const parseCsvData = (text: string, nowIso: string): CsvImportData => {
-  const rows = parseCsvRows(text);
-  if (rows.length === 0) {
-    throw new Error('CSV is empty.');
-  }
-  const header = rows[0].map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'));
-  const headerIndex = new Map<string, number>();
-  header.forEach((label, index) => {
-    if (label) headerIndex.set(label, index);
-  });
-  if (!headerIndex.has('record_type')) {
-    throw new Error('CSV missing record_type column.');
-  }
-
-  const getValue = (row: string[], key: string) => {
-    const index = headerIndex.get(key);
-    if (index === undefined) return '';
-    return row[index] ?? '';
-  };
-
-  const gyms: Gym[] = [];
-  const routes: Route[] = [];
-  const attempts: Attempt[] = [];
-  let skippedRows = 0;
-
-  rows.slice(1).forEach((row) => {
-    if (row.every((cell) => cell.trim() === '')) return;
-    const recordType = normalizeText(getValue(row, 'record_type')).toLowerCase();
-    if (!recordType) {
-      skippedRows += 1;
-      return;
-    }
-
-    if (recordType === 'gym') {
-      const name = normalizeText(getValue(row, 'gym_name'));
-      if (!name) {
-        skippedRows += 1;
-        return;
-      }
-      const createdAt = normalizeText(getValue(row, 'created_at')) || nowIso;
-      const updatedAt = normalizeText(getValue(row, 'updated_at')) || undefined;
-      gyms.push({ name, createdAt, updatedAt });
-      return;
-    }
-
-    if (recordType === 'route') {
-      const gymName = normalizeText(getValue(row, 'gym_name'));
-      const ropeNumber = normalizeText(getValue(row, 'rope_number'));
-      const color = normalizeText(getValue(row, 'color'));
-      const setDate = normalizeText(getValue(row, 'set_date'));
-      const gradeRaw = normalizeText(getValue(row, 'grade'));
-      if (!gymName || !ropeNumber || !color || !setDate || !gradeRaw) {
-        skippedRows += 1;
-        return;
-      }
-      const grade = normalizeGrade(gradeRaw);
-      if (!isValidGrade(grade)) {
-        skippedRows += 1;
-        return;
-      }
-      const routeId =
-        normalizeText(getValue(row, 'route_id')) || toRouteId(gymName, ropeNumber, color, setDate);
-      const createdAt = normalizeText(getValue(row, 'created_at')) || nowIso;
-      const updatedAt = normalizeText(getValue(row, 'updated_at')) || undefined;
-      routes.push({ routeId, gymName, ropeNumber, color, setDate, grade, createdAt, updatedAt });
-      return;
-    }
-
-    if (recordType === 'attempt') {
-      const routeId = normalizeText(getValue(row, 'route_id'));
-      const climbDate = normalizeText(getValue(row, 'climb_date'));
-      if (!routeId || !climbDate) {
-        skippedRows += 1;
-        return;
-      }
-      const attemptId = normalizeText(getValue(row, 'attempt_id')) || createId();
-      const attemptIndexValue = Number.parseInt(getValue(row, 'attempt_index'), 10);
-      const attemptIndex =
-        Number.isFinite(attemptIndexValue) && attemptIndexValue > 0 ? attemptIndexValue : 0;
-      const climbStyleRaw = normalizeText(getValue(row, 'climb_style')).toLowerCase();
-      const completionStyleRaw = normalizeText(getValue(row, 'completion_style')).toLowerCase();
-      const climbStyle: ClimbStyle = climbStyleRaw === 'lead' ? 'lead' : 'top_rope';
-      const completionStyle: CompletionStyle =
-        completionStyleRaw === 'send_clean' ||
-        completionStyleRaw === 'send_rested' ||
-        completionStyleRaw === 'attempt'
-          ? (completionStyleRaw as CompletionStyle)
-          : 'attempt';
-      const notes = getValue(row, 'notes') ?? '';
-      const createdAt = normalizeText(getValue(row, 'created_at')) || nowIso;
-      const updatedAt = normalizeText(getValue(row, 'updated_at')) || undefined;
-      attempts.push({
-        attemptId,
-        routeId,
-        climbDate,
-        attemptIndex,
-        climbStyle,
-        completionStyle,
-        notes,
-        createdAt,
-        updatedAt,
-      });
-      return;
-    }
-
-    skippedRows += 1;
-  });
-
-  return { gyms, routes, attempts, skippedRows };
-};
-
-type MergeSummary = {
-  data: DataStore;
-  addedGyms: number;
-  updatedGyms: number;
-  addedRoutes: number;
-  updatedRoutes: number;
-  addedAttempts: number;
-  updatedAttempts: number;
-  skippedAttempts: number;
-};
-
-const mergeGyms = (existing: Gym[], incoming: Gym[]) => {
-  const map = new Map<string, Gym>();
-  existing.forEach((gym) => {
-    map.set(gym.name.toLowerCase(), gym);
-  });
-  let added = 0;
-  let updated = 0;
-
-  incoming.forEach((gym) => {
-    const key = gym.name.toLowerCase();
-    const current = map.get(key);
-    if (!current) {
-      map.set(key, gym);
-      added += 1;
-      return;
-    }
-    if (isIncomingNewer(gym, current)) {
-      map.set(key, {
-        ...current,
-        ...gym,
-        name: current.name,
-        createdAt: pickEarlierTimestamp(current.createdAt, gym.createdAt),
-      });
-      updated += 1;
-    }
-  });
-
-  return { gyms: Array.from(map.values()), added, updated };
-};
-
-const mergeRoutes = (existing: Route[], incoming: Route[]) => {
-  const map = new Map<string, Route>();
-  existing.forEach((route) => {
-    map.set(route.routeId, route);
-  });
-  let added = 0;
-  let updated = 0;
-
-  incoming.forEach((route) => {
-    const current = map.get(route.routeId);
-    if (!current) {
-      map.set(route.routeId, route);
-      added += 1;
-      return;
-    }
-    if (isIncomingNewer(route, current)) {
-      map.set(route.routeId, {
-        ...current,
-        ...route,
-        routeId: current.routeId,
-        createdAt: pickEarlierTimestamp(current.createdAt, route.createdAt),
-      });
-      updated += 1;
-    }
-  });
-
-  return { routes: Array.from(map.values()), added, updated };
-};
-
-const mergeAttempts = (existing: Attempt[], incoming: Attempt[]) => {
-  const map = new Map<string, Attempt>();
-  existing.forEach((attempt) => {
-    map.set(attempt.attemptId, attempt);
-  });
-  let added = 0;
-  let updated = 0;
-
-  incoming.forEach((attempt) => {
-    const current = map.get(attempt.attemptId);
-    if (!current) {
-      map.set(attempt.attemptId, attempt);
-      added += 1;
-      return;
-    }
-    if (isIncomingNewer(attempt, current)) {
-      map.set(attempt.attemptId, {
-        ...current,
-        ...attempt,
-        attemptId: current.attemptId,
-        createdAt: pickEarlierTimestamp(current.createdAt, attempt.createdAt),
-      });
-      updated += 1;
-    }
-  });
-
-  return { attempts: Array.from(map.values()), added, updated };
-};
-
-const normalizeAttemptIndices = (attempts: Attempt[]) => {
-  const grouped = new Map<string, Attempt[]>();
-  attempts.forEach((attempt) => {
-    const key = `${attempt.routeId}__${attempt.climbDate}`;
-    const existing = grouped.get(key);
-    if (existing) {
-      existing.push(attempt);
-    } else {
-      grouped.set(key, [attempt]);
-    }
-  });
-
-  grouped.forEach((group) => {
-    const hasInvalid = group.some((attempt) => !attempt.attemptIndex || attempt.attemptIndex < 1);
-    const indexSet = new Set(group.map((attempt) => attempt.attemptIndex));
-    const hasDuplicates = indexSet.size !== group.length;
-    if (!hasInvalid && !hasDuplicates) return;
-
-    group
-      .slice()
-      .sort((a, b) => {
-        const createdCompare = a.createdAt.localeCompare(b.createdAt);
-        if (createdCompare !== 0) return createdCompare;
-        return a.attemptId.localeCompare(b.attemptId);
-      })
-      .forEach((attempt, index) => {
-        attempt.attemptIndex = index + 1;
-      });
-  });
-};
-
-const mergeImportedData = (current: DataStore, imported: CsvImportData): MergeSummary => {
-  const nowIso = new Date().toISOString();
-  const gymsToMerge = imported.gyms.slice();
-  const gymKeys = new Set(gymsToMerge.map((gym) => gym.name.toLowerCase()));
-  imported.routes.forEach((route) => {
-    const key = route.gymName.toLowerCase();
-    if (!gymKeys.has(key)) {
-      gymsToMerge.push({ name: route.gymName, createdAt: route.createdAt ?? nowIso });
-      gymKeys.add(key);
-    }
-  });
-
-  const gymMerge = mergeGyms(current.gyms, gymsToMerge);
-  const routeMerge = mergeRoutes(current.routes, imported.routes);
-  const routeIds = new Set(routeMerge.routes.map((route) => route.routeId));
-  const attemptsToMerge = imported.attempts.filter((attempt) => routeIds.has(attempt.routeId));
-  const skippedAttempts = imported.attempts.length - attemptsToMerge.length;
-  const attemptMerge = mergeAttempts(current.attempts, attemptsToMerge);
-  normalizeAttemptIndices(attemptMerge.attempts);
-
-  return {
-    data: normalizeData({
-      version: current.version ?? 1,
-      gyms: gymMerge.gyms,
-      routes: routeMerge.routes,
-      attempts: attemptMerge.attempts,
-    }),
-    addedGyms: gymMerge.added,
-    updatedGyms: gymMerge.updated,
-    addedRoutes: routeMerge.added,
-    updatedRoutes: routeMerge.updated,
-    addedAttempts: attemptMerge.added,
-    updatedAttempts: attemptMerge.updated,
-    skippedAttempts,
-  };
-};
 
 const setFormDisabled = (form: HTMLFormElement | null, disabled: boolean) => {
   if (!form) return;
@@ -1115,6 +805,7 @@ const upsertRoute = (payload: {
     if (existing.grade !== payload.grade) {
       existing.grade = payload.grade;
       existing.updatedAt = new Date().toISOString();
+      enqueueSyncRows([buildRouteSyncRow(existing)]);
     }
     return existing;
   }
@@ -1128,6 +819,7 @@ const upsertRoute = (payload: {
     createdAt: new Date().toISOString(),
   };
   state.data.routes.push(route);
+  enqueueSyncRows([buildRouteSyncRow(route)]);
   return route;
 };
 
@@ -1228,6 +920,42 @@ const renderGyms = () => {
           `Delete ${gym.name}? This removes routes and attempts for this gym.`
         );
         if (!confirmDelete) return;
+        const deletedAt = new Date().toISOString();
+        const routesToDelete = state.data.routes.filter((route) => route.gymName === gym.name);
+        const routeIds = new Set(routesToDelete.map((route) => route.routeId));
+        const attemptsToDelete = state.data.attempts.filter((attempt) =>
+          routeIds.has(attempt.routeId)
+        );
+        const tombstones: TombstoneRow[] = [
+          { record_type: 'tombstone_gym', gym_name: gym.name, updated_at: deletedAt },
+          ...routesToDelete.map(
+            (route): TombstoneRow => ({
+              record_type: 'tombstone_route',
+              route_id: route.routeId,
+              updated_at: deletedAt,
+            })
+          ),
+          ...attemptsToDelete.map(
+            (attempt): TombstoneRow => ({
+              record_type: 'tombstone_attempt',
+              attempt_id: attempt.attemptId,
+              updated_at: deletedAt,
+            })
+          ),
+        ];
+        enqueueTombstones(tombstones);
+        const keysToRemove = [
+          getSyncRowKey({ record_type: 'gym', gym_name: gym.name }),
+          ...routesToDelete.map((route) =>
+            getSyncRowKey({ record_type: 'route', route_id: route.routeId })
+          ),
+          ...attemptsToDelete.map((attempt) =>
+            getSyncRowKey({ record_type: 'attempt', attempt_id: attempt.attemptId })
+          ),
+        ].filter((key): key is string => Boolean(key));
+        if (keysToRemove.length > 0) {
+          dequeueSyncRows(keysToRemove);
+        }
         state.data.routes = state.data.routes.filter((route) => route.gymName !== gym.name);
         state.data.attempts = state.data.attempts.filter((attempt) => {
           const route = findRouteById(attempt.routeId);
@@ -1333,6 +1061,30 @@ const renderRoutes = () => {
           `Delete rope ${route.ropeNumber} (${route.color})? This removes all attempts.`
         );
         if (!confirmDelete) return;
+        const deletedAt = new Date().toISOString();
+        const attemptsToDelete = state.data.attempts.filter(
+          (attempt) => attempt.routeId === route.routeId
+        );
+        const tombstones: TombstoneRow[] = [
+          { record_type: 'tombstone_route', route_id: route.routeId, updated_at: deletedAt },
+          ...attemptsToDelete.map(
+            (attempt): TombstoneRow => ({
+              record_type: 'tombstone_attempt',
+              attempt_id: attempt.attemptId,
+              updated_at: deletedAt,
+            })
+          ),
+        ];
+        enqueueTombstones(tombstones);
+        const keysToRemove = [
+          getSyncRowKey({ record_type: 'route', route_id: route.routeId }),
+          ...attemptsToDelete.map((attempt) =>
+            getSyncRowKey({ record_type: 'attempt', attempt_id: attempt.attemptId })
+          ),
+        ].filter((key): key is string => Boolean(key));
+        if (keysToRemove.length > 0) {
+          dequeueSyncRows(keysToRemove);
+        }
         state.data.routes = state.data.routes.filter((item) => item.routeId !== route.routeId);
         state.data.attempts = state.data.attempts.filter((attempt) => attempt.routeId !== route.routeId);
         saveData(state.data);
@@ -1452,6 +1204,17 @@ const renderAttempts = () => {
     deleteButton.addEventListener('click', () => {
       const confirmDelete = window.confirm('Delete this attempt?');
       if (!confirmDelete) return;
+      const deletedAt = new Date().toISOString();
+      enqueueTombstones([
+        { record_type: 'tombstone_attempt', attempt_id: attempt.attemptId, updated_at: deletedAt },
+      ]);
+      const attemptKey = getSyncRowKey({
+        record_type: 'attempt',
+        attempt_id: attempt.attemptId,
+      });
+      if (attemptKey) {
+        dequeueSyncRows([attemptKey]);
+      }
       state.data.attempts = state.data.attempts.filter(
         (item) => item.attemptId !== attempt.attemptId
       );
@@ -1997,9 +1760,13 @@ importCsvInput?.addEventListener('change', async () => {
     }
     const merged = mergeImportedData(state.data, parsed);
     state.data = merged.data;
+    const updatedTotal = merged.updatedGyms + merged.updatedRoutes + merged.updatedAttempts;
+    const addedTotal = merged.addedGyms + merged.addedRoutes + merged.addedAttempts;
+    if (updatedTotal + addedTotal > 0) {
+      enqueueSyncRows(buildSyncRowsFromData(state.data));
+    }
     await saveData(state.data);
     renderAll();
-    const updatedTotal = merged.updatedGyms + merged.updatedRoutes + merged.updatedAttempts;
     const skippedTotal = parsed.skippedRows + merged.skippedAttempts;
     const status = `Imported ${merged.addedGyms} gyms, ${merged.addedRoutes} routes, ${merged.addedAttempts} attempts. Updated ${updatedTotal}. Skipped ${skippedTotal}.`;
     setImportStatus(status);
@@ -2093,6 +1860,7 @@ attemptForm?.addEventListener('submit', (event) => {
         );
         attempt.attemptIndex = existingAttempts.length + 1;
       }
+      enqueueSyncRows([buildAttemptSyncRow(attempt)]);
       saveData(state.data);
       renderAll();
       setMessage('Attempt updated.');
@@ -2116,6 +1884,7 @@ attemptForm?.addEventListener('submit', (event) => {
     createdAt: new Date().toISOString(),
   };
   state.data.attempts.push(attempt);
+  enqueueSyncRows([buildAttemptSyncRow(attempt)]);
   saveData(state.data);
   renderAll();
   setMessage('Attempt saved.');
@@ -2157,18 +1926,38 @@ const handleRouteSave = () => {
       return;
     } else {
       const oldRouteId = route.routeId;
+      const routeIdChanged = oldRouteId !== newRouteId;
+      const updatedAt = new Date().toISOString();
       route.gymName = gymName;
       route.ropeNumber = ropeNumber;
       route.color = color;
       route.setDate = setDate;
       route.grade = grade;
       route.routeId = newRouteId;
-      route.updatedAt = new Date().toISOString();
-      if (oldRouteId !== newRouteId) {
+      route.updatedAt = updatedAt;
+      const updatedAttempts: Attempt[] = [];
+      if (routeIdChanged) {
         state.data.attempts.forEach((attempt) => {
-          if (attempt.routeId === oldRouteId) attempt.routeId = newRouteId;
+          if (attempt.routeId === oldRouteId) {
+            attempt.routeId = newRouteId;
+            attempt.updatedAt = updatedAt;
+            updatedAttempts.push(attempt);
+          }
         });
       }
+      if (routeIdChanged) {
+        enqueueTombstones([
+          { record_type: 'tombstone_route', route_id: oldRouteId, updated_at: updatedAt },
+        ]);
+        const oldKey = getSyncRowKey({ record_type: 'route', route_id: oldRouteId });
+        if (oldKey) {
+          dequeueSyncRows([oldKey]);
+        }
+      }
+      enqueueSyncRows([
+        buildRouteSyncRow(route),
+        ...updatedAttempts.map((attempt) => buildAttemptSyncRow(attempt)),
+      ]);
       saveData(state.data);
       renderAll();
       setMessage('Route updated.');
@@ -2182,7 +1971,7 @@ const handleRouteSave = () => {
     return;
   }
 
-  state.data.routes.push({
+  const route: Route = {
     routeId: newRouteId,
     gymName,
     ropeNumber,
@@ -2190,7 +1979,9 @@ const handleRouteSave = () => {
     setDate,
     grade,
     createdAt: new Date().toISOString(),
-  });
+  };
+  state.data.routes.push(route);
+  enqueueSyncRows([buildRouteSyncRow(route)]);
   saveData(state.data);
   renderAll();
   setMessage('Route saved.');
@@ -2271,17 +2062,61 @@ gymForm?.addEventListener('submit', (event) => {
         setMessage('Renaming would conflict with existing routes.');
         return;
       }
+      const nameChanged = currentName !== gymName;
+      const updatedAt = new Date().toISOString();
       const routesToRename = state.data.routes.filter((route) => route.gymName === currentName);
+      const updatedRoutes: Route[] = [];
+      const updatedAttempts: Attempt[] = [];
+      const tombstones: TombstoneRow[] = [];
+      const keysToRemove: string[] = [];
+
+      if (nameChanged) {
+        tombstones.push({
+          record_type: 'tombstone_gym',
+          gym_name: currentName,
+          updated_at: updatedAt,
+        });
+        const gymKey = getSyncRowKey({ record_type: 'gym', gym_name: currentName });
+        if (gymKey) keysToRemove.push(gymKey);
+      }
+
       routesToRename.forEach((route) => {
         const oldRouteId = route.routeId;
-        route.gymName = gymName;
-        route.routeId = toRouteId(gymName, route.ropeNumber, route.color, route.setDate);
-        state.data.attempts.forEach((attempt) => {
-          if (attempt.routeId === oldRouteId) attempt.routeId = route.routeId;
-        });
+        if (nameChanged) {
+          route.gymName = gymName;
+          route.routeId = toRouteId(gymName, route.ropeNumber, route.color, route.setDate);
+          route.updatedAt = updatedAt;
+          updatedRoutes.push(route);
+          tombstones.push({
+            record_type: 'tombstone_route',
+            route_id: oldRouteId,
+            updated_at: updatedAt,
+          });
+          const routeKey = getSyncRowKey({ record_type: 'route', route_id: oldRouteId });
+          if (routeKey) keysToRemove.push(routeKey);
+          const nextRouteId = route.routeId;
+          state.data.attempts.forEach((attempt) => {
+            if (attempt.routeId === oldRouteId) {
+              attempt.routeId = nextRouteId;
+              attempt.updatedAt = updatedAt;
+              updatedAttempts.push(attempt);
+            }
+          });
+        }
       });
+
+      enqueueTombstones(tombstones);
+      if (keysToRemove.length > 0) {
+        dequeueSyncRows(keysToRemove);
+      }
+
       gym.name = gymName;
-      gym.updatedAt = new Date().toISOString();
+      gym.updatedAt = updatedAt;
+      enqueueSyncRows([
+        buildGymSyncRow(gym),
+        ...updatedRoutes.map((route) => buildRouteSyncRow(route)),
+        ...updatedAttempts.map((attempt) => buildAttemptSyncRow(attempt)),
+      ]);
       saveData(state.data);
       renderAll();
       setMessage('Gym updated.');
@@ -2295,7 +2130,9 @@ gymForm?.addEventListener('submit', (event) => {
     return;
   }
 
-  state.data.gyms.push({ name: gymName, createdAt: new Date().toISOString() });
+  const gym = { name: gymName, createdAt: new Date().toISOString() };
+  state.data.gyms.push(gym);
+  enqueueSyncRows([buildGymSyncRow(gym)]);
   saveData(state.data);
   renderAll();
   setMessage('Gym saved.');
@@ -2430,41 +2267,10 @@ const initAuth = async () => {
       if (authEmailInput) authEmailInput.value = '';
       if (authCodeInput) authCodeInput.value = '';
       updateAuthStatus(clerk);
-      if (convexHelloResult) convexHelloResult.textContent = '';
     });
 
-    convexHelloButton?.addEventListener('click', async () => {
-      if (!convexHelloResult) return;
-      if (!convexHttpUrl) {
-        convexHelloResult.textContent = 'Missing Convex HTTP URL.';
-        return;
-      }
-      if (!clerk.session) {
-        convexHelloResult.textContent = 'Sign in to test Convex.';
-        return;
-      }
-      const token = await clerk.session.getToken({ template: 'convex' });
-      if (!token) {
-        convexHelloResult.textContent = 'Unable to fetch Convex token.';
-        return;
-      }
-      convexHelloResult.textContent = 'Calling Convex...';
-      try {
-        const response = await fetch(`${convexHttpUrl}/hello`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (!response.ok) {
-          convexHelloResult.textContent = `Convex error: ${response.status}`;
-          return;
-        }
-        const payload = (await response.json()) as { message?: string; subject?: string };
-        convexHelloResult.textContent = `OK: ${payload.message ?? 'hello'} (${payload.subject ?? 'user'})`;
-      } catch (error) {
-        console.error('Convex test failed', error);
-        convexHelloResult.textContent = 'Convex request failed.';
-      }
+    syncRefreshButton?.addEventListener('click', async () => {
+      await runSync(clerk);
     });
 
     updateAuthStatus(clerk);
