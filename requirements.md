@@ -24,6 +24,9 @@
 - `route_id` (string, required, matches Route.route_id)
 - `climb_date` (date, required)
 - `attempt_index` (number, required, starts at 1 per route per day)
+- `climb_style` (enum, required)
+  - `top_rope`
+  - `lead`
 - `completion_style` (enum, required)
   - `send_clean` (no resting)
   - `send_rested` (rested)
@@ -68,57 +71,25 @@
 - Handle auth state changes and token refresh by re-calling `setAuth` when the session token changes.
 - Gate all backend queries/mutations on authenticated identity; unauthenticated callers must be rejected.
 
-## Backend
-### Data model (align to current app)
-- Keep the current stable IDs and shapes from `src/main.ts` so offline data maps 1:1:
-  - Gym: `name`, `createdAt`, `updatedAt?`, `deleted?`, `userId`.
-  - Route: `routeId` (string), `gymName`, `ropeNumber`, `color`, `setDate`, `grade`, `createdAt`, `updatedAt?`, `deleted?`, `userId`.
-  - Attempt: `attemptId` (string), `routeId` (string), `climbDate`, `attemptIndex`, `completionStyle`, `notes`, `createdAt`, `updatedAt?`, `deleted?`, `userId`.
-- Use `routeId` as the canonical cross-device identifier (do not replace with Convex IDs).
-- Store `updatedAt` as server-authoritative time for conflict resolution; keep a separate `localUpdatedAt` in IndexedDB only.
-- Add backend indexes on `userId` for each table and on `routeId` for attempts.
-- Prefer soft deletes (`deleted=true` + `updatedAt`) to allow reliable sync of deletions.
+## Backend (Convex sync)
+- Sync exists to keep gyms/routes/attempts consistent across devices for a signed-in user.
+- Reuse the CSV export/import mapping as the canonical sync payload shape:
+  - `record_type`, `gym_name`, `route_id`, `attempt_id`, `rope_number`, `color`, `set_date`,
+    `grade`, `climb_date`, `attempt_index`, `climb_style`, `completion_style`, `notes`,
+    `created_at`, `updated_at`.
+- `routeId` remains the cross-device identifier (do not replace with Convex IDs).
+- Convex stores per-user sync state:
+  - `lastSyncAt` (server timestamp).
+  - Row data for sync (either full snapshot or an append-only list of events).
+- Sync flow (simple):
+  - Client builds rows using the CSV export helpers and sends rows since the last sync.
+  - Server upserts rows and returns rows updated since `lastSyncAt` plus a new server timestamp.
+  - Client merges by `updated_at` and keeps IndexedDB as the UI source of truth.
 
-### Backend functions (Convex)
-- Implement CRUD mutations for gyms, routes, and attempts that:
-  - Require auth and derive `userId` from `ctx.auth.getUserIdentity()`.
-  - Validate ownership by `userId` and disallow cross-user access.
-  - Enforce route identity uniqueness via `routeId` (gymName + ropeNumber + color + setDate).
-  - Set/overwrite `updatedAt` with server time on every write.
-- Implement queries for:
-  - List all gyms/routes/attempts for the authenticated user.
-  - List attempts by `routeId` for the authenticated user.
-- Implement a pull query `getAllDataSince(lastSyncAt)` that returns gyms/routes/attempts updated after `lastSyncAt`.
-
-### Sync strategy (client)
-- Keep IndexedDB as the UI source of truth; sync is background.
-- Maintain:
-  - `lastSyncAt` (server time) in local metadata.
-  - An outbox of pending operations (create/update/delete) for offline usage.
-- Upload phase:
-  - Process outbox sequentially (preserve order).
-  - For each item, call the appropriate Convex mutation.
-  - On success, mark the local record as synced and remove from outbox.
-- Download phase:
-  - Call `getAllDataSince(lastSyncAt)` and merge into IndexedDB.
-  - If server `updatedAt` is newer than local, replace local (LWW).
-  - If local has newer `localUpdatedAt`, keep local and re-queue the change.
-- Conflict policy:
-  - Use server `updatedAt` as the authoritative clock.
-  - Do not compare client clocks directly to server clocks for conflict resolution.
-  - Prefer server version when timestamps are equal; re-apply local changes as needed.
-
-### Migration
-- On first authenticated run, upload existing local data into Convex (preserving IDs).
-- After migration completes, set `lastSyncAt` and continue normal sync.
-
-## Caveats, trade-offs, and corner cases
-- Offline sync complexity: outbox ordering, retries, and partial failures can introduce duplicates or missing data if not handled carefully; prefer idempotent mutations and strict sequencing.
-- Conflict resolution: last-write-wins can drop concurrent edits; define which fields are authoritative and document that later edits overwrite earlier ones.
-- Clock skew: do not trust client time for conflict resolution; always use server `updatedAt` and treat client times as advisory only.
-- Deletion vs edit: if a record is deleted on one device and edited on another, deletion wins only if its server `updatedAt` is newer; otherwise the edit may resurrect the item.
-- ID stability: route/attempt IDs must remain stable across devices; any change to ID composition requires a migration plan.
-- IndexedDB corruption or wipe: app must handle empty local data gracefully and rehydrate from server on next sync.
+### CSV import/export
+- CSV import/export stays as the manual backup/restore feature.
+- CSV column set must stay aligned with the sync payload (includes `climb_style`, `created_at`, `updated_at`).
+- Imported rows merge into local data; any further syncing uses the same row shape.
 
 
 # TODOs:
