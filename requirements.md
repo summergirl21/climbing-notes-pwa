@@ -78,16 +78,26 @@
     `grade`, `climb_date`, `attempt_index`, `climb_style`, `completion_style`, `notes`,
     `created_at`, `updated_at`.
 - `routeId` remains the cross-device identifier (do not replace with Convex IDs).
-- Convex stores per-user sync state:
-  - `lastSyncAt` (server timestamp).
-  - Row data for sync (either full snapshot or an append-only list of events).
+- Convex stores per-user sync rows for gyms/routes/attempts (full snapshot rows).
+- Sync rows use server-vended timestamps:
+  - `updated_at` (ISO string) for merges and CSV compatibility.
+  - `updated_at_ms` (number) for cursor comparisons.
+- Conflict resolution uses client timestamps:
+  - Server stores `client_updated_at`/`client_updated_at_ms` from incoming rows.
+  - Incoming rows older than the stored client timestamp are rejected.
+  - Ties prefer tombstones over non-tombstone records.
+- Client stores per-user sync metadata and queues in local storage:
+  - `syncMeta` (`lastSyncAtMs`, `lastSyncKey`, `lastSyncedAt`) keyed by user id.
+  - `syncQueue` for incremental push rows keyed by user id.
+  - `tombstones` for deletes keyed by user id.
 - Deletes are represented as tombstone rows:
   - `record_type`: `tombstone_gym`, `tombstone_route`, or `tombstone_attempt`.
   - Exactly one identifier is set: `gym_name`, `route_id`, or `attempt_id`.
   - `updated_at` is the server deletion time and wins ties against non-tombstone rows.
   - Keep tombstones long enough for all devices to observe them (or indefinitely).
 - Sync flow (simple):
-  - Client builds rows using the CSV export helpers and sends rows since the last sync.
+  - First sync sends a full snapshot using the CSV export helpers.
+  - Subsequent syncs push only queued changes plus tombstones.
   - Server upserts rows and returns rows updated since `lastSyncAt` plus a new server timestamp.
   - Client merges by `updated_at` and keeps IndexedDB as the UI source of truth.
 
@@ -114,5 +124,5 @@
 - [ ] Picture recognition of the route
 - [ ] Make it work with ratings at Edge works, like 5.10+/-
 - [ ] Why did show install button on android and not iOS?
-- [ ] Proper backend with account and syncing etc
+- [x] Proper backend with account and syncing etc
 - [x] The attempts list on desktop didn't seem to size the cards nicely

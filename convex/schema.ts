@@ -20,11 +20,11 @@ export default defineSchema({
     notes: v.optional(v.string()),
     created_at: v.optional(v.string()),
     updated_at: v.string(),
+    updated_at_ms: v.number(),
+    client_updated_at: v.optional(v.string()),
+    client_updated_at_ms: v.optional(v.number()),
   })
     .index("by_user_updated_at", ["user_id", "updated_at"])
+    .index("by_user_updated_at_sync_key", ["user_id", "updated_at_ms", "sync_key"])
     .index("by_user_sync_key", ["user_id", "sync_key"]),
-  sync_state: defineTable({
-    user_id: v.string(),
-    last_sync_at: v.string(),
-  }).index("by_user", ["user_id"]),
 });

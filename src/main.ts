@@ -3,6 +3,26 @@ import { createId, isValidGrade, normalizeGrade, normalizeText, toRouteId } from
 import { createEmptyData } from './models.js';
 import type { Attempt, ClimbStyle, CompletionStyle, Route } from './models.js';
 import { createPersistence } from './persistence.js';
+import {
+  applySyncRows,
+  buildAttemptSyncRow,
+  buildGymSyncRow,
+  buildRouteSyncRow,
+  buildSyncRowsFromData,
+  getMaxCursor,
+} from './syncClient.js';
+import type { SyncRow } from './syncClient.js';
+import { readSyncMeta, writeSyncMeta } from './syncMeta.js';
+import type { SyncMeta } from './syncMeta.js';
+import { addTombstones, clearTombstones, readTombstones } from './tombstones.js';
+import type { TombstoneRow } from './tombstones.js';
+import {
+  addSyncRows,
+  clearSyncQueue,
+  getSyncRowKey,
+  readSyncQueue,
+  removeSyncRows,
+} from './syncQueue.js';
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -60,7 +80,7 @@ type ClerkClient = {
 type ClerkInstance = {
   load: () => Promise<void>;
   session: ClerkSession | null;
-  user: { primaryEmailAddress?: { emailAddress: string } } | null;
+  user: { id?: string; primaryEmailAddress?: { emailAddress: string } } | null;
   client?: ClerkClient;
   setActive?: (options: { session: string }) => Promise<void>;
   addListener?: (listener: (state: { session: ClerkSession | null }) => void) => void;
@@ -149,8 +169,8 @@ const authSendCode = document.getElementById('authSendCode') as HTMLButtonElemen
 const authVerifyCode = document.getElementById('authVerifyCode') as HTMLButtonElement | null;
 const authSignOut = document.getElementById('authSignOut') as HTMLButtonElement | null;
 const authStatus = document.getElementById('authStatus') as HTMLDivElement | null;
-const convexHelloButton = document.getElementById('convexHello') as HTMLButtonElement | null;
-const convexHelloResult = document.getElementById('convexHelloResult') as HTMLDivElement | null;
+const syncStatus = document.getElementById('syncStatus') as HTMLDivElement | null;
+const syncRefreshButton = document.getElementById('syncRefresh') as HTMLButtonElement | null;
 const convexUrlMeta = document.querySelector('meta[name="convex-url"]') as HTMLMetaElement | null;
 const convexUrl = convexUrlMeta?.content ?? '';
 const convexHttpUrl = convexUrl ? convexUrl.replace('.convex.cloud', '.convex.site') : '';
@@ -342,11 +362,118 @@ const loadClerk = async () => {
   return clerk;
 };
 
+let syncInProgress = false;
+let syncSessionActive = false;
+let syncUserKey: string | null = null;
+let syncMeta: SyncMeta | null = null;
+let syncStatusMessage = '';
+const SYNC_USER_KEY_STORAGE = 'climbingNotesSyncUserKey';
+let lastSyncUserKey = window.localStorage.getItem(SYNC_USER_KEY_STORAGE);
+
+const rememberSyncUserKey = (userKey: string) => {
+  syncUserKey = userKey;
+  lastSyncUserKey = userKey;
+  window.localStorage.setItem(SYNC_USER_KEY_STORAGE, userKey);
+};
+
+const getQueueUserKey = () => syncUserKey ?? lastSyncUserKey;
+
+const enqueueSyncRows = (rows: SyncRow[]) => {
+  const queueUserKey = getQueueUserKey();
+  if (!queueUserKey || rows.length === 0) return;
+  addSyncRows(window.localStorage, queueUserKey, rows);
+};
+
+const dequeueSyncRows = (keys: string[]) => {
+  const queueUserKey = getQueueUserKey();
+  if (!queueUserKey || keys.length === 0) return;
+  removeSyncRows(window.localStorage, queueUserKey, keys);
+};
+
+const enqueueTombstones = (rows: TombstoneRow[]) => {
+  const queueUserKey = getQueueUserKey();
+  if (!queueUserKey || rows.length === 0) return;
+  addTombstones(window.localStorage, queueUserKey, rows);
+};
+
+const decodeBase64Url = (value: string) => {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = normalized.length % 4 ? '='.repeat(4 - (normalized.length % 4)) : '';
+  return atob(`${normalized}${padding}`);
+};
+
+const getUserKeyFromToken = (token: string) => {
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const payload = JSON.parse(decodeBase64Url(parts[1]));
+    return typeof payload.sub === 'string' ? payload.sub : null;
+  } catch (error) {
+    console.warn('Failed to decode sync token', error);
+    return null;
+  }
+};
+
+const formatSyncTimestamp = (value: string) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const updateSyncStatus = () => {
+  if (!syncStatus || !syncRefreshButton) return;
+  if (!syncSessionActive) {
+    syncStatus.textContent = 'Sign in to sync.';
+    syncRefreshButton.toggleAttribute('disabled', true);
+    return;
+  }
+  if (syncInProgress) {
+    syncStatus.textContent = 'Syncing...';
+    syncRefreshButton.toggleAttribute('disabled', true);
+    return;
+  }
+  if (syncStatusMessage) {
+    syncStatus.textContent = syncStatusMessage;
+    syncRefreshButton.toggleAttribute('disabled', false);
+    return;
+  }
+  if (syncMeta?.lastSyncedAt) {
+    syncStatus.textContent = `Last synced ${formatSyncTimestamp(syncMeta.lastSyncedAt)}`;
+    syncRefreshButton.toggleAttribute('disabled', false);
+    return;
+  }
+  syncStatus.textContent = 'Ready to sync.';
+  syncRefreshButton.toggleAttribute('disabled', false);
+};
+
+const refreshSyncIdentity = async (clerk: ClerkInstance) => {
+  if (!clerk.session) return;
+  try {
+    const token = await clerk.session.getToken({ template: 'convex' });
+    if (!token) return;
+    const userKey = getUserKeyFromToken(token);
+    if (!userKey || userKey === syncUserKey) return;
+    rememberSyncUserKey(userKey);
+    syncMeta = readSyncMeta(window.localStorage, userKey);
+    syncStatusMessage = '';
+    updateSyncStatus();
+  } catch (error) {
+    console.warn('Failed to refresh sync identity', error);
+  }
+};
+
 const updateAuthStatus = (clerk: ClerkInstance) => {
   if (!authStatus) return;
-  if (clerk.session && clerk.user) {
-    const email = clerk.user.primaryEmailAddress?.emailAddress ?? 'Signed in';
-    authStatus.textContent = `Signed in as ${email}`;
+  const isSignedIn = Boolean(clerk.session);
+  syncSessionActive = isSignedIn;
+  if (isSignedIn) {
+    const email = clerk.user?.primaryEmailAddress?.emailAddress;
+    authStatus.textContent = email ? `Signed in as ${email}` : 'Signed in.';
     authStatus.classList.add('signed-in');
     authSendCode?.setAttribute('hidden', 'true');
     authVerifyCode?.setAttribute('hidden', 'true');
@@ -354,6 +481,10 @@ const updateAuthStatus = (clerk: ClerkInstance) => {
     authCodeWrap?.setAttribute('hidden', 'true');
     authHelper?.setAttribute('hidden', 'true');
     authEmailInput?.toggleAttribute('disabled', true);
+    syncMeta = syncUserKey ? readSyncMeta(window.localStorage, syncUserKey) : syncMeta;
+    syncStatusMessage = '';
+    updateSyncStatus();
+    void refreshSyncIdentity(clerk);
   } else {
     authStatus.textContent = 'Not signed in.';
     authStatus.classList.remove('signed-in');
@@ -363,6 +494,11 @@ const updateAuthStatus = (clerk: ClerkInstance) => {
     authCodeWrap?.setAttribute('hidden', 'true');
     authHelper?.setAttribute('hidden', 'true');
     authEmailInput?.toggleAttribute('disabled', false);
+    syncSessionActive = false;
+    syncUserKey = null;
+    syncMeta = null;
+    syncStatusMessage = '';
+    updateSyncStatus();
   }
 };
 
@@ -388,6 +524,169 @@ const finalizeAuthSession = async (clerk: ClerkInstance, sessionId?: string) => 
   }
   setMessage('Signed in.');
   return true;
+};
+
+const filterTombstonesAgainstLocal = (tombstones: TombstoneRow[]) => {
+  if (tombstones.length === 0) return tombstones;
+  const gymNames = new Set(state.data.gyms.map((gym) => gym.name));
+  const routeIds = new Set(state.data.routes.map((route) => route.routeId));
+  const attemptIds = new Set(state.data.attempts.map((attempt) => attempt.attemptId));
+
+  return tombstones.filter((tombstone) => {
+    if (tombstone.record_type === 'tombstone_gym') {
+      return tombstone.gym_name ? !gymNames.has(tombstone.gym_name) : false;
+    }
+    if (tombstone.record_type === 'tombstone_route') {
+      return tombstone.route_id ? !routeIds.has(tombstone.route_id) : false;
+    }
+    if (tombstone.record_type === 'tombstone_attempt') {
+      return tombstone.attempt_id ? !attemptIds.has(tombstone.attempt_id) : false;
+    }
+    return false;
+  });
+};
+
+const runSync = async (clerk: ClerkInstance) => {
+  if (syncInProgress) return;
+  if (!convexHttpUrl) {
+    syncStatusMessage = 'Missing Convex HTTP URL.';
+    updateSyncStatus();
+    return;
+  }
+  if (!clerk.session) {
+    syncStatusMessage = 'Sign in to sync.';
+    updateSyncStatus();
+    return;
+  }
+  const token = await clerk.session.getToken({ template: 'convex' });
+  if (!token) {
+    syncStatusMessage = 'Unable to fetch Convex token.';
+    updateSyncStatus();
+    return;
+  }
+  syncSessionActive = true;
+  const userKey = getUserKeyFromToken(token);
+  if (!userKey) {
+    syncStatusMessage = 'Missing user identity.';
+    updateSyncStatus();
+    return;
+  }
+  rememberSyncUserKey(userKey);
+  syncMeta = syncMeta ?? readSyncMeta(window.localStorage, userKey);
+
+  syncInProgress = true;
+  syncStatusMessage = '';
+  updateSyncStatus();
+
+  try {
+    let pushConflictCount = 0;
+    const tombstones = readTombstones(window.localStorage, userKey);
+    const filteredTombstones = filterTombstonesAgainstLocal(tombstones);
+    if (filteredTombstones.length !== tombstones.length) {
+      clearTombstones(window.localStorage, userKey);
+      if (filteredTombstones.length > 0) {
+        addTombstones(window.localStorage, userKey, filteredTombstones);
+      }
+    }
+
+    const hasSyncedBefore = Boolean(syncMeta?.lastSyncedAt);
+    const queuedRows = readSyncQueue(window.localStorage, userKey);
+    const dataRows = hasSyncedBefore ? queuedRows : buildSyncRowsFromData(state.data);
+    const pushRows = dataRows.concat(filteredTombstones);
+    if (pushRows.length > 0) {
+      const pushResponse = await fetch(`${convexHttpUrl}/sync/push`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ rows: pushRows }),
+      });
+      if (!pushResponse.ok) {
+        syncStatusMessage =
+          pushResponse.status === 401
+            ? 'Sign in to sync.'
+            : `Sync push failed (${pushResponse.status}).`;
+        return;
+      }
+      try {
+        const payload = (await pushResponse.json()) as { conflicts?: Array<unknown> };
+        if (Array.isArray(payload.conflicts)) {
+          pushConflictCount = payload.conflicts.length;
+        }
+      } catch (error) {
+        console.warn('Failed to parse sync push response', error);
+      }
+      clearSyncQueue(window.localStorage, userKey);
+      if (filteredTombstones.length > 0) {
+        clearTombstones(window.localStorage, userKey);
+      }
+    }
+
+    const response = await fetch(`${convexHttpUrl}/sync/pull`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        lastSyncAtMs: syncMeta?.lastSyncAtMs,
+        lastSyncKey: syncMeta?.lastSyncKey,
+      }),
+    });
+
+    if (!response.ok) {
+      syncStatusMessage =
+        response.status === 401 ? 'Sign in to sync.' : `Sync pull failed (${response.status}).`;
+      return;
+    }
+
+    const payload = (await response.json()) as { rows?: SyncRow[]; serverTime?: string };
+    if (!payload.serverTime) {
+      syncStatusMessage = 'Sync failed: missing server time.';
+      return;
+    }
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    const merged = applySyncRows(state.data, rows);
+    state.data = merged.data;
+    await saveData(state.data);
+    renderAll();
+
+    const previousSyncAtMs = syncMeta?.lastSyncAtMs;
+    const previousSyncKey = syncMeta?.lastSyncKey ?? '';
+    const nextCursor = getMaxCursor(rows);
+    let lastSyncAtMs: number | undefined = previousSyncAtMs;
+    let lastSyncKey = previousSyncKey;
+
+    if (nextCursor) {
+      const currentMs = lastSyncAtMs ?? Number.NEGATIVE_INFINITY;
+      if (nextCursor.lastSyncAtMs > currentMs) {
+        lastSyncAtMs = nextCursor.lastSyncAtMs;
+        lastSyncKey = nextCursor.lastSyncKey;
+      } else if (nextCursor.lastSyncAtMs === currentMs && nextCursor.lastSyncKey > lastSyncKey) {
+        lastSyncKey = nextCursor.lastSyncKey;
+      }
+    }
+
+    syncMeta = {
+      lastSyncAtMs,
+      lastSyncKey: lastSyncAtMs !== undefined ? lastSyncKey : undefined,
+      lastSyncedAt: payload.serverTime,
+    };
+    writeSyncMeta(window.localStorage, userKey, syncMeta);
+    syncStatusMessage = '';
+    setMessage(
+      pushConflictCount > 0
+        ? 'Sync complete (conflicts resolved from newer data).'
+        : 'Sync complete.'
+    );
+  } catch (error) {
+    console.error('Sync failed', error);
+    syncStatusMessage = 'Sync failed.';
+  } finally {
+    syncInProgress = false;
+    updateSyncStatus();
+  }
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -506,6 +805,7 @@ const upsertRoute = (payload: {
     if (existing.grade !== payload.grade) {
       existing.grade = payload.grade;
       existing.updatedAt = new Date().toISOString();
+      enqueueSyncRows([buildRouteSyncRow(existing)]);
     }
     return existing;
   }
@@ -519,6 +819,7 @@ const upsertRoute = (payload: {
     createdAt: new Date().toISOString(),
   };
   state.data.routes.push(route);
+  enqueueSyncRows([buildRouteSyncRow(route)]);
   return route;
 };
 
@@ -619,6 +920,42 @@ const renderGyms = () => {
           `Delete ${gym.name}? This removes routes and attempts for this gym.`
         );
         if (!confirmDelete) return;
+        const deletedAt = new Date().toISOString();
+        const routesToDelete = state.data.routes.filter((route) => route.gymName === gym.name);
+        const routeIds = new Set(routesToDelete.map((route) => route.routeId));
+        const attemptsToDelete = state.data.attempts.filter((attempt) =>
+          routeIds.has(attempt.routeId)
+        );
+        const tombstones: TombstoneRow[] = [
+          { record_type: 'tombstone_gym', gym_name: gym.name, updated_at: deletedAt },
+          ...routesToDelete.map(
+            (route): TombstoneRow => ({
+              record_type: 'tombstone_route',
+              route_id: route.routeId,
+              updated_at: deletedAt,
+            })
+          ),
+          ...attemptsToDelete.map(
+            (attempt): TombstoneRow => ({
+              record_type: 'tombstone_attempt',
+              attempt_id: attempt.attemptId,
+              updated_at: deletedAt,
+            })
+          ),
+        ];
+        enqueueTombstones(tombstones);
+        const keysToRemove = [
+          getSyncRowKey({ record_type: 'gym', gym_name: gym.name }),
+          ...routesToDelete.map((route) =>
+            getSyncRowKey({ record_type: 'route', route_id: route.routeId })
+          ),
+          ...attemptsToDelete.map((attempt) =>
+            getSyncRowKey({ record_type: 'attempt', attempt_id: attempt.attemptId })
+          ),
+        ].filter((key): key is string => Boolean(key));
+        if (keysToRemove.length > 0) {
+          dequeueSyncRows(keysToRemove);
+        }
         state.data.routes = state.data.routes.filter((route) => route.gymName !== gym.name);
         state.data.attempts = state.data.attempts.filter((attempt) => {
           const route = findRouteById(attempt.routeId);
@@ -724,6 +1061,30 @@ const renderRoutes = () => {
           `Delete rope ${route.ropeNumber} (${route.color})? This removes all attempts.`
         );
         if (!confirmDelete) return;
+        const deletedAt = new Date().toISOString();
+        const attemptsToDelete = state.data.attempts.filter(
+          (attempt) => attempt.routeId === route.routeId
+        );
+        const tombstones: TombstoneRow[] = [
+          { record_type: 'tombstone_route', route_id: route.routeId, updated_at: deletedAt },
+          ...attemptsToDelete.map(
+            (attempt): TombstoneRow => ({
+              record_type: 'tombstone_attempt',
+              attempt_id: attempt.attemptId,
+              updated_at: deletedAt,
+            })
+          ),
+        ];
+        enqueueTombstones(tombstones);
+        const keysToRemove = [
+          getSyncRowKey({ record_type: 'route', route_id: route.routeId }),
+          ...attemptsToDelete.map((attempt) =>
+            getSyncRowKey({ record_type: 'attempt', attempt_id: attempt.attemptId })
+          ),
+        ].filter((key): key is string => Boolean(key));
+        if (keysToRemove.length > 0) {
+          dequeueSyncRows(keysToRemove);
+        }
         state.data.routes = state.data.routes.filter((item) => item.routeId !== route.routeId);
         state.data.attempts = state.data.attempts.filter((attempt) => attempt.routeId !== route.routeId);
         saveData(state.data);
@@ -843,6 +1204,17 @@ const renderAttempts = () => {
     deleteButton.addEventListener('click', () => {
       const confirmDelete = window.confirm('Delete this attempt?');
       if (!confirmDelete) return;
+      const deletedAt = new Date().toISOString();
+      enqueueTombstones([
+        { record_type: 'tombstone_attempt', attempt_id: attempt.attemptId, updated_at: deletedAt },
+      ]);
+      const attemptKey = getSyncRowKey({
+        record_type: 'attempt',
+        attempt_id: attempt.attemptId,
+      });
+      if (attemptKey) {
+        dequeueSyncRows([attemptKey]);
+      }
       state.data.attempts = state.data.attempts.filter(
         (item) => item.attemptId !== attempt.attemptId
       );
@@ -1388,9 +1760,13 @@ importCsvInput?.addEventListener('change', async () => {
     }
     const merged = mergeImportedData(state.data, parsed);
     state.data = merged.data;
+    const updatedTotal = merged.updatedGyms + merged.updatedRoutes + merged.updatedAttempts;
+    const addedTotal = merged.addedGyms + merged.addedRoutes + merged.addedAttempts;
+    if (updatedTotal + addedTotal > 0) {
+      enqueueSyncRows(buildSyncRowsFromData(state.data));
+    }
     await saveData(state.data);
     renderAll();
-    const updatedTotal = merged.updatedGyms + merged.updatedRoutes + merged.updatedAttempts;
     const skippedTotal = parsed.skippedRows + merged.skippedAttempts;
     const status = `Imported ${merged.addedGyms} gyms, ${merged.addedRoutes} routes, ${merged.addedAttempts} attempts. Updated ${updatedTotal}. Skipped ${skippedTotal}.`;
     setImportStatus(status);
@@ -1484,6 +1860,7 @@ attemptForm?.addEventListener('submit', (event) => {
         );
         attempt.attemptIndex = existingAttempts.length + 1;
       }
+      enqueueSyncRows([buildAttemptSyncRow(attempt)]);
       saveData(state.data);
       renderAll();
       setMessage('Attempt updated.');
@@ -1507,6 +1884,7 @@ attemptForm?.addEventListener('submit', (event) => {
     createdAt: new Date().toISOString(),
   };
   state.data.attempts.push(attempt);
+  enqueueSyncRows([buildAttemptSyncRow(attempt)]);
   saveData(state.data);
   renderAll();
   setMessage('Attempt saved.');
@@ -1548,18 +1926,38 @@ const handleRouteSave = () => {
       return;
     } else {
       const oldRouteId = route.routeId;
+      const routeIdChanged = oldRouteId !== newRouteId;
+      const updatedAt = new Date().toISOString();
       route.gymName = gymName;
       route.ropeNumber = ropeNumber;
       route.color = color;
       route.setDate = setDate;
       route.grade = grade;
       route.routeId = newRouteId;
-      route.updatedAt = new Date().toISOString();
-      if (oldRouteId !== newRouteId) {
+      route.updatedAt = updatedAt;
+      const updatedAttempts: Attempt[] = [];
+      if (routeIdChanged) {
         state.data.attempts.forEach((attempt) => {
-          if (attempt.routeId === oldRouteId) attempt.routeId = newRouteId;
+          if (attempt.routeId === oldRouteId) {
+            attempt.routeId = newRouteId;
+            attempt.updatedAt = updatedAt;
+            updatedAttempts.push(attempt);
+          }
         });
       }
+      if (routeIdChanged) {
+        enqueueTombstones([
+          { record_type: 'tombstone_route', route_id: oldRouteId, updated_at: updatedAt },
+        ]);
+        const oldKey = getSyncRowKey({ record_type: 'route', route_id: oldRouteId });
+        if (oldKey) {
+          dequeueSyncRows([oldKey]);
+        }
+      }
+      enqueueSyncRows([
+        buildRouteSyncRow(route),
+        ...updatedAttempts.map((attempt) => buildAttemptSyncRow(attempt)),
+      ]);
       saveData(state.data);
       renderAll();
       setMessage('Route updated.');
@@ -1573,7 +1971,7 @@ const handleRouteSave = () => {
     return;
   }
 
-  state.data.routes.push({
+  const route: Route = {
     routeId: newRouteId,
     gymName,
     ropeNumber,
@@ -1581,7 +1979,9 @@ const handleRouteSave = () => {
     setDate,
     grade,
     createdAt: new Date().toISOString(),
-  });
+  };
+  state.data.routes.push(route);
+  enqueueSyncRows([buildRouteSyncRow(route)]);
   saveData(state.data);
   renderAll();
   setMessage('Route saved.');
@@ -1662,17 +2062,61 @@ gymForm?.addEventListener('submit', (event) => {
         setMessage('Renaming would conflict with existing routes.');
         return;
       }
+      const nameChanged = currentName !== gymName;
+      const updatedAt = new Date().toISOString();
       const routesToRename = state.data.routes.filter((route) => route.gymName === currentName);
+      const updatedRoutes: Route[] = [];
+      const updatedAttempts: Attempt[] = [];
+      const tombstones: TombstoneRow[] = [];
+      const keysToRemove: string[] = [];
+
+      if (nameChanged) {
+        tombstones.push({
+          record_type: 'tombstone_gym',
+          gym_name: currentName,
+          updated_at: updatedAt,
+        });
+        const gymKey = getSyncRowKey({ record_type: 'gym', gym_name: currentName });
+        if (gymKey) keysToRemove.push(gymKey);
+      }
+
       routesToRename.forEach((route) => {
         const oldRouteId = route.routeId;
-        route.gymName = gymName;
-        route.routeId = toRouteId(gymName, route.ropeNumber, route.color, route.setDate);
-        state.data.attempts.forEach((attempt) => {
-          if (attempt.routeId === oldRouteId) attempt.routeId = route.routeId;
-        });
+        if (nameChanged) {
+          route.gymName = gymName;
+          route.routeId = toRouteId(gymName, route.ropeNumber, route.color, route.setDate);
+          route.updatedAt = updatedAt;
+          updatedRoutes.push(route);
+          tombstones.push({
+            record_type: 'tombstone_route',
+            route_id: oldRouteId,
+            updated_at: updatedAt,
+          });
+          const routeKey = getSyncRowKey({ record_type: 'route', route_id: oldRouteId });
+          if (routeKey) keysToRemove.push(routeKey);
+          const nextRouteId = route.routeId;
+          state.data.attempts.forEach((attempt) => {
+            if (attempt.routeId === oldRouteId) {
+              attempt.routeId = nextRouteId;
+              attempt.updatedAt = updatedAt;
+              updatedAttempts.push(attempt);
+            }
+          });
+        }
       });
+
+      enqueueTombstones(tombstones);
+      if (keysToRemove.length > 0) {
+        dequeueSyncRows(keysToRemove);
+      }
+
       gym.name = gymName;
-      gym.updatedAt = new Date().toISOString();
+      gym.updatedAt = updatedAt;
+      enqueueSyncRows([
+        buildGymSyncRow(gym),
+        ...updatedRoutes.map((route) => buildRouteSyncRow(route)),
+        ...updatedAttempts.map((attempt) => buildAttemptSyncRow(attempt)),
+      ]);
       saveData(state.data);
       renderAll();
       setMessage('Gym updated.');
@@ -1686,7 +2130,9 @@ gymForm?.addEventListener('submit', (event) => {
     return;
   }
 
-  state.data.gyms.push({ name: gymName, createdAt: new Date().toISOString() });
+  const gym = { name: gymName, createdAt: new Date().toISOString() };
+  state.data.gyms.push(gym);
+  enqueueSyncRows([buildGymSyncRow(gym)]);
   saveData(state.data);
   renderAll();
   setMessage('Gym saved.');
@@ -1821,41 +2267,10 @@ const initAuth = async () => {
       if (authEmailInput) authEmailInput.value = '';
       if (authCodeInput) authCodeInput.value = '';
       updateAuthStatus(clerk);
-      if (convexHelloResult) convexHelloResult.textContent = '';
     });
 
-    convexHelloButton?.addEventListener('click', async () => {
-      if (!convexHelloResult) return;
-      if (!convexHttpUrl) {
-        convexHelloResult.textContent = 'Missing Convex HTTP URL.';
-        return;
-      }
-      if (!clerk.session) {
-        convexHelloResult.textContent = 'Sign in to test Convex.';
-        return;
-      }
-      const token = await clerk.session.getToken({ template: 'convex' });
-      if (!token) {
-        convexHelloResult.textContent = 'Unable to fetch Convex token.';
-        return;
-      }
-      convexHelloResult.textContent = 'Calling Convex...';
-      try {
-        const response = await fetch(`${convexHttpUrl}/hello`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (!response.ok) {
-          convexHelloResult.textContent = `Convex error: ${response.status}`;
-          return;
-        }
-        const payload = (await response.json()) as { message?: string; subject?: string };
-        convexHelloResult.textContent = `OK: ${payload.message ?? 'hello'} (${payload.subject ?? 'user'})`;
-      } catch (error) {
-        console.error('Convex test failed', error);
-        convexHelloResult.textContent = 'Convex request failed.';
-      }
+    syncRefreshButton?.addEventListener('click', async () => {
+      await runSync(clerk);
     });
 
     updateAuthStatus(clerk);

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildSyncKey, isTombstoneType } from "../convex/syncHelpers.js";
+import {
+  buildSyncKey,
+  isTombstoneType,
+  normalizeSyncRow,
+  rowsEqual,
+} from "../convex/syncHelpers.js";
 
 describe("convex sync helpers", () => {
   it("builds sync keys for normal rows", () => {
@@ -19,5 +24,31 @@ describe("convex sync helpers", () => {
   it("identifies tombstone record types", () => {
     expect(isTombstoneType("tombstone_gym")).toBe(true);
     expect(isTombstoneType("route")).toBe(false);
+  });
+
+  it("normalizes incoming rows", () => {
+    const row = normalizeSyncRow({
+      record_type: "GYM",
+      gym_name: "  Base ",
+      attempt_index: "1",
+    });
+    expect(row?.record_type).toBe("gym");
+    expect(row?.gym_name).toBe("Base");
+  });
+
+  it("compares rows without updated fields", () => {
+    const existing = normalizeSyncRow({
+      record_type: "route",
+      route_id: "r1",
+      grade: "5.9",
+    });
+    const incoming = normalizeSyncRow({
+      record_type: "route",
+      route_id: "r1",
+      grade: "5.9",
+    });
+    expect(existing).not.toBeNull();
+    expect(incoming).not.toBeNull();
+    expect(rowsEqual(existing!, incoming!)).toBe(true);
   });
 });
