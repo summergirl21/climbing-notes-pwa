@@ -9,12 +9,10 @@ const ALLOWED_ORIGINS = new Set(["http://localhost:8000", "https://summergirl21.
 
 const ALLOWED_METHODS = "GET, POST, OPTIONS";
 
-const getCorsHeaders = (
-  request: Request
-): { ok: boolean; headers: HeadersInit | null } => {
+const getCorsHeaders = (request: Request): { ok: boolean; headers: HeadersInit } => {
   const origin = request.headers.get("Origin");
-  if (!origin) return { ok: true, headers: null };
-  if (!ALLOWED_ORIGINS.has(origin)) return { ok: false, headers: null };
+  if (!origin) return { ok: true, headers: {} };
+  if (!ALLOWED_ORIGINS.has(origin)) return { ok: false, headers: {} };
   return {
     ok: true,
     headers: {
@@ -34,12 +32,12 @@ const handleOptions = (request: Request) => {
   }
   return new Response(null, {
     status: 204,
-    headers: cors.headers ?? undefined,
+    headers: cors.headers,
   });
 };
 
 const withCors = (
-  handler: (ctx: any, request: Request, corsHeaders: HeadersInit | null) => Promise<Response>
+  handler: (ctx: any, request: Request, corsHeaders: HeadersInit) => Promise<Response>
 ) =>
   httpAction(async (ctx, request) => {
     const cors = getCorsHeaders(request);
@@ -76,10 +74,10 @@ http.route({
       identity = await ctx.auth.getUserIdentity();
     } catch (error) {
       console.error("Auth failed", error);
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
     if (!identity) {
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
     return new Response(
       JSON.stringify({
@@ -89,7 +87,7 @@ http.route({
       }),
       {
         headers: {
-          ...(corsHeaders ?? {}),
+          ...corsHeaders,
           "Content-Type": "application/json",
         },
       }
@@ -106,10 +104,10 @@ http.route({
       identity = await ctx.auth.getUserIdentity();
     } catch (error) {
       console.error("Auth failed", error);
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
     if (!identity) {
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
     let payload: { lastSyncAtMs?: number; lastSyncKey?: string } = {};
@@ -126,13 +124,13 @@ http.route({
       });
       return new Response(JSON.stringify(result), {
         headers: {
-          ...(corsHeaders ?? {}),
+          ...corsHeaders,
           "Content-Type": "application/json",
         },
       });
     } catch (error) {
       console.error("Sync pull failed", error);
-      return new Response("Sync failed", { status: 500, headers: corsHeaders ?? undefined });
+      return new Response("Sync failed", { status: 500, headers: corsHeaders });
     }
   }),
 });
@@ -146,10 +144,10 @@ http.route({
       identity = await ctx.auth.getUserIdentity();
     } catch (error) {
       console.error("Auth failed", error);
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
     if (!identity) {
-      return new Response("Unauthorized", { status: 401, headers: corsHeaders ?? undefined });
+      return new Response("Unauthorized", { status: 401, headers: corsHeaders });
     }
 
     let payload: { rows?: unknown[] } = {};
@@ -160,7 +158,7 @@ http.route({
     }
 
     if (!Array.isArray(payload.rows)) {
-      return new Response("Invalid payload", { status: 400, headers: corsHeaders ?? undefined });
+      return new Response("Invalid payload", { status: 400, headers: corsHeaders });
     }
 
     try {
@@ -178,13 +176,13 @@ http.route({
       const result = await ctx.runMutation(api.sync.syncPush, { rows });
       return new Response(JSON.stringify(result), {
         headers: {
-          ...(corsHeaders ?? {}),
+          ...corsHeaders,
           "Content-Type": "application/json",
         },
       });
     } catch (error) {
       console.error("Sync push failed", error);
-      return new Response("Sync failed", { status: 500, headers: corsHeaders ?? undefined });
+      return new Response("Sync failed", { status: 500, headers: corsHeaders });
     }
   }),
 });
