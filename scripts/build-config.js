@@ -5,6 +5,15 @@ const path = require("path");
 const root = process.cwd();
 const srcPath = path.join(root, "index.html");
 const destPath = path.join(root, "docs", "index.html");
+const clerkSourcePath = path.join(
+  root,
+  "node_modules",
+  "@clerk",
+  "clerk-js",
+  "dist",
+  "clerk.browser.js"
+);
+const clerkDestPath = path.join(root, "docs", "vendor", "clerk.browser.js");
 
 const html = fs.readFileSync(srcPath, "utf8");
 
@@ -50,3 +59,12 @@ if (convexUrl) {
 
 fs.mkdirSync(path.dirname(destPath), { recursive: true });
 fs.writeFileSync(destPath, output);
+
+if (fs.existsSync(clerkSourcePath)) {
+  fs.mkdirSync(path.dirname(clerkDestPath), { recursive: true });
+  fs.copyFileSync(clerkSourcePath, clerkDestPath);
+} else {
+  console.warn(
+    "[build-config] Clerk bundle not found. Run `npm install` to fetch @clerk/clerk-js."
+  );
+}

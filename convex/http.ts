@@ -7,78 +7,68 @@ const http = httpRouter();
 
 const ALLOWED_ORIGINS = new Set(["http://localhost:8000", "https://summergirl21.github.io"]);
 
-const buildCorsHeaders = (origin: string | null) => {
-  const headers: Record<string, string> = {
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Max-Age": "86400",
+const ALLOWED_METHODS = "GET, POST, OPTIONS";
+
+const getCorsHeaders = (request: Request): { ok: boolean; headers: HeadersInit } => {
+  const origin = request.headers.get("Origin");
+  if (!origin) return { ok: true, headers: {} };
+  if (!ALLOWED_ORIGINS.has(origin)) return { ok: false, headers: {} };
+  return {
+    ok: true,
+    headers: {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": ALLOWED_METHODS,
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Max-Age": "86400",
+      Vary: "Origin",
+    },
   };
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
-    headers["Access-Control-Allow-Origin"] = origin;
-    headers["Vary"] = "Origin";
-  }
-  return headers;
 };
 
-const isAllowedOrigin = (origin: string | null) => !origin || ALLOWED_ORIGINS.has(origin);
+const handleOptions = (request: Request) => {
+  const cors = getCorsHeaders(request);
+  if (!cors.ok) {
+    return new Response("Forbidden", { status: 403 });
+  }
+  return new Response(null, {
+    status: 204,
+    headers: cors.headers,
+  });
+};
+
+const withCors = (
+  handler: (ctx: any, request: Request, corsHeaders: HeadersInit) => Promise<Response>
+) =>
+  httpAction(async (ctx, request) => {
+    const cors = getCorsHeaders(request);
+    if (!cors.ok) {
+      return new Response("Forbidden", { status: 403 });
+    }
+    return handler(ctx, request, cors.headers);
+  });
 
 http.route({
   path: "/hello",
   method: "OPTIONS",
-  handler: httpAction(async (_ctx, request) => {
-    const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
-    }
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
-  }),
+  handler: httpAction(async (_ctx, request) => handleOptions(request)),
 });
 
 http.route({
   path: "/sync/pull",
   method: "OPTIONS",
-  handler: httpAction(async (_ctx, request) => {
-    const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
-    }
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
-  }),
+  handler: httpAction(async (_ctx, request) => handleOptions(request)),
 });
 
 http.route({
   path: "/sync/push",
   method: "OPTIONS",
-  handler: httpAction(async (_ctx, request) => {
-    const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
-    }
-    return new Response(null, {
-      status: 204,
-      headers: corsHeaders,
-    });
-  }),
+  handler: httpAction(async (_ctx, request) => handleOptions(request)),
 });
 
 http.route({
   path: "/hello",
   method: "GET",
-  handler: httpAction(async (ctx, request) => {
-    const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
-    }
+  handler: withCors(async (ctx, request, corsHeaders) => {
     let identity = null;
     try {
       identity = await ctx.auth.getUserIdentity();
@@ -91,7 +81,7 @@ http.route({
     }
     return new Response(
       JSON.stringify({
-        message: "hello from convex",
+        message: "hello from convex!",
         subject: identity.subject,
         email: identity.email,
       }),
@@ -108,12 +98,7 @@ http.route({
 http.route({
   path: "/sync/pull",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
-    }
+  handler: withCors(async (ctx, request, corsHeaders) => {
     let identity = null;
     try {
       identity = await ctx.auth.getUserIdentity();
@@ -153,12 +138,7 @@ http.route({
 http.route({
   path: "/sync/push",
   method: "POST",
-  handler: httpAction(async (ctx, request) => {
-    const origin = request.headers.get("Origin");
-    const corsHeaders = buildCorsHeaders(origin);
-    if (!isAllowedOrigin(origin)) {
-      return new Response("Forbidden", { status: 403, headers: corsHeaders });
-    }
+  handler: withCors(async (ctx, request, corsHeaders) => {
     let identity = null;
     try {
       identity = await ctx.auth.getUserIdentity();
